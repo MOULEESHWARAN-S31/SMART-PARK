@@ -30,6 +30,10 @@ public class ParkSmartApp extends JFrame {
     private JTextField otpField;
     private JLabel otpStatus;
     private JLabel loginStatus;
+    private JToggleButton loginUserBtn;
+    private JToggleButton loginWatchBtn;
+    private JPanel otpStepPanel;
+    private String loginMode = "user";
 
     private JPanel homePanel;
     private JLabel userInfoLabel;
@@ -131,72 +135,214 @@ public class ParkSmartApp extends JFrame {
 
     private void initLoginPanel() {
         loginPanel = new JPanel(new GridBagLayout());
-        loginPanel.setBackground(BG);
+        loginPanel.setBackground(new Color(239, 244, 250));
 
-        JPanel card = new RoundedPanel(24, CARD);
-        card.setPreferredSize(new Dimension(460, 450));
+        JPanel card = new RoundedPanel(26, Color.WHITE);
+        card.setPreferredSize(new Dimension(420, 620));
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBorder(BorderFactory.createEmptyBorder(20, 25, 20, 25));
+        card.setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
 
+        // ── Title ──
         JLabel title = new JLabel("ParkSmart");
-        title.setFont(new Font("Syne", Font.BOLD, 46));
-        title.setForeground(FREE_COLOR);
+        title.setFont(new Font("Segoe UI Black", Font.BOLD, 40));
+        title.setForeground(new Color(11, 98, 242));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel subtitle = new JLabel("Hotel Parking Management System");
-        subtitle.setFont(new Font("DM Sans", Font.PLAIN, 14));
-        subtitle.setForeground(MUTED);
+        subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 15));
+        subtitle.setForeground(new Color(100, 121, 150));
+        subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        subtitle.setBorder(BorderFactory.createEmptyBorder(6, 0, 18, 0));
 
-        JLabel info = new JLabel("Step 1: Enter mobile, get OTP. OTP expires in 3 minutes.");
-        info.setFont(BODY_FONT);
-        info.setForeground(MUTED);
+        // ── Toggle tabs ──
+        JPanel toggleWrapper = new RoundedPanel(18, new Color(236, 243, 255));
+        toggleWrapper.setLayout(new GridLayout(1, 2, 8, 0));
+        toggleWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+        toggleWrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        toggleWrapper.setMaximumSize(new Dimension(372, 66));
+
+        loginUserBtn  = makeLoginTabButton("User Login");
+        loginWatchBtn = makeLoginTabButton("Watchman Login");
+
+        ButtonGroup tabGroup = new ButtonGroup();
+        tabGroup.add(loginUserBtn);
+        tabGroup.add(loginWatchBtn);
+        loginUserBtn.setSelected(true);
+
+        loginUserBtn.addActionListener(e  -> setLoginMode("user"));
+        loginWatchBtn.addActionListener(e -> setLoginMode("watchman"));
+
+        toggleWrapper.add(loginUserBtn);
+        toggleWrapper.add(loginWatchBtn);
+
+        JSeparator divider = new JSeparator();
+        divider.setForeground(new Color(37, 114, 255));
+        divider.setMaximumSize(new Dimension(372, 3));
+        divider.setAlignmentX(Component.LEFT_ALIGNMENT);
+        divider.setBorder(BorderFactory.createEmptyBorder(12, 0, 12, 0));
+
+        // ── Heading & info ──
+        JLabel heading = new JLabel("Welcome Back");
+        heading.setName("loginHeading");
+        heading.setFont(new Font("Segoe UI Black", Font.PLAIN, 28));
+        heading.setForeground(new Color(22, 28, 52));
+        heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel infoLbl = new JLabel("Enter your mobile number to receive an OTP");
+        infoLbl.setName("loginInfo");
+        infoLbl.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        infoLbl.setForeground(new Color(113, 125, 143));
+        infoLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        infoLbl.setBorder(BorderFactory.createEmptyBorder(4, 0, 14, 0));
+
+        // Store refs so setLoginMode can update them
+        loginPanel.putClientProperty("heading", heading);
+        loginPanel.putClientProperty("infoLbl", infoLbl);
+
+        // ── Mobile field ──
+        JLabel mobileLabel = new JLabel("Mobile Number");
+        mobileLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        mobileLabel.setForeground(new Color(118, 128, 146));
+        mobileLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel inputCard = new RoundedPanel(14, new Color(245, 248, 253));
+        inputCard.setLayout(new BorderLayout(8, 0));
+        inputCard.setMaximumSize(new Dimension(372, 50));
+        inputCard.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        inputCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel country = new JLabel("+91 ");
+        country.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        country.setForeground(new Color(84, 102, 134));
 
         mobileField = new JTextField();
-        mobileField.setFont(BODY_FONT);
-        mobileField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        mobileField.setBorder(null);
+        mobileField.setOpaque(false);
+        mobileField.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+        mobileField.setForeground(new Color(16, 29, 47));
 
-        JButton sendOtp = new JButton("Get OTP");
-        sendOtp.setBackground(FREE_COLOR);
-        sendOtp.setForeground(Color.WHITE);
-        sendOtp.setFocusPainted(false);
-        sendOtp.addActionListener(e -> sendOtpAction());
+        inputCard.add(country, BorderLayout.WEST);
+        inputCard.add(mobileField, BorderLayout.CENTER);
 
-        otpField = new JTextField();
-        otpField.setFont(BODY_FONT);
-        otpField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-
-        JButton verifyOtp = new JButton("Verify OTP");
-        verifyOtp.setBackground(new Color(12, 131, 70));
-        verifyOtp.setForeground(Color.WHITE);
-        verifyOtp.setFocusPainted(false);
-        verifyOtp.addActionListener(e -> verifyOtpAction());
+        // ── Get OTP button ──
+        JButton getOtp = new JButton("Get OTP →");
+        getOtp.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        getOtp.setForeground(Color.WHITE);
+        getOtp.setBackground(new Color(27, 122, 252));
+        getOtp.setFocusPainted(false);
+        getOtp.setBorder(new RoundedLineBorder(new Color(24, 90, 201), 0, 24, true));
+        getOtp.setMaximumSize(new Dimension(372, 52));
+        getOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        getOtp.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        getOtp.addActionListener(e -> {
+            sendOtpAction();
+            otpStepPanel.setVisible(true);
+            card.revalidate();
+            card.repaint();
+        });
 
         otpStatus = new JLabel(" ");
-        otpStatus.setFont(BODY_FONT);
+        otpStatus.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        otpStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // ── OTP step (hidden until Get OTP clicked) ──
+        otpStepPanel = new JPanel();
+        otpStepPanel.setLayout(new BoxLayout(otpStepPanel, BoxLayout.Y_AXIS));
+        otpStepPanel.setOpaque(false);
+        otpStepPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        otpStepPanel.setVisible(false);
+
+        JLabel otpLabel = new JLabel("Enter OTP");
+        otpLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        otpLabel.setForeground(new Color(118, 128, 146));
+        otpLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel otpInputCard = new RoundedPanel(14, new Color(245, 248, 253));
+        otpInputCard.setLayout(new BorderLayout());
+        otpInputCard.setMaximumSize(new Dimension(372, 50));
+        otpInputCard.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        otpInputCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        otpField = new JTextField();
+        otpField.setBorder(null);
+        otpField.setOpaque(false);
+        otpField.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+        otpField.setForeground(new Color(16, 29, 47));
+        otpInputCard.add(otpField, BorderLayout.CENTER);
+
+        JButton verifyOtp = new JButton("Verify & Login →");
+        verifyOtp.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        verifyOtp.setForeground(Color.WHITE);
+        verifyOtp.setBackground(new Color(12, 131, 70));
+        verifyOtp.setFocusPainted(false);
+        verifyOtp.setBorder(new RoundedLineBorder(new Color(9, 100, 53), 0, 24, true));
+        verifyOtp.setMaximumSize(new Dimension(372, 52));
+        verifyOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        verifyOtp.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        verifyOtp.addActionListener(e -> verifyOtpAction());
 
         loginStatus = new JLabel(" ");
-        loginStatus.setFont(BODY_FONT);
+        loginStatus.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        loginStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+        otpStepPanel.add(Box.createRigidArea(new Dimension(0, 14)));
+        otpStepPanel.add(otpLabel);
+        otpStepPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+        otpStepPanel.add(otpInputCard);
+        otpStepPanel.add(Box.createRigidArea(new Dimension(0, 14)));
+        otpStepPanel.add(verifyOtp);
+        otpStepPanel.add(Box.createRigidArea(new Dimension(0, 6)));
+        otpStepPanel.add(loginStatus);
+
+        // ── Assemble card ──
         card.add(title);
-        card.add(Box.createRigidArea(new Dimension(0, 8)));
         card.add(subtitle);
-        card.add(Box.createRigidArea(new Dimension(0, 20)));
-        card.add(info);
-        card.add(Box.createRigidArea(new Dimension(0, 16)));
-        card.add(new JLabel("Mobile Number"));
-        card.add(mobileField);
-        card.add(Box.createRigidArea(new Dimension(0, 12)));
-        card.add(sendOtp);
-        card.add(Box.createRigidArea(new Dimension(0, 8)));
+        card.add(toggleWrapper);
+        card.add(divider);
+        card.add(heading);
+        card.add(infoLbl);
+        card.add(mobileLabel);
+        card.add(Box.createRigidArea(new Dimension(0, 4)));
+        card.add(inputCard);
+        card.add(Box.createRigidArea(new Dimension(0, 14)));
+        card.add(getOtp);
+        card.add(Box.createRigidArea(new Dimension(0, 6)));
         card.add(otpStatus);
-        card.add(Box.createRigidArea(new Dimension(0, 16)));
-        card.add(new JLabel("Enter OTP"));
-        card.add(otpField);
-        card.add(Box.createRigidArea(new Dimension(0, 12)));
-        card.add(verifyOtp);
-        card.add(Box.createRigidArea(new Dimension(0, 8)));
-        card.add(loginStatus);
+        card.add(otpStepPanel);
 
         loginPanel.add(card);
+        setLoginMode("user");
+    }
+
+    private JToggleButton makeLoginTabButton(String text) {
+        JToggleButton btn = new JToggleButton(text);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        btn.setFocusable(false);
+        btn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+        btn.setBackground(new Color(245, 250, 255));
+        btn.setForeground(new Color(42, 84, 148));
+        return btn;
+    }
+
+    private void setLoginMode(String mode) {
+        loginMode = mode;
+        JLabel heading = (JLabel) loginPanel.getClientProperty("heading");
+        JLabel infoLbl = (JLabel) loginPanel.getClientProperty("infoLbl");
+        if ("watchman".equals(mode)) {
+            loginUserBtn.setForeground(new Color(85, 106, 140));
+            loginUserBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+            loginWatchBtn.setForeground(new Color(20, 89, 235));
+            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 16, true));
+            if (heading != null) heading.setText("Watchman Access");
+            if (infoLbl != null) infoLbl.setText("Enter your registered watchman mobile number");
+        } else {
+            loginUserBtn.setForeground(new Color(20, 89, 235));
+            loginUserBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 16, true));
+            loginWatchBtn.setForeground(new Color(85, 106, 140));
+            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+            if (heading != null) heading.setText("Welcome Back");
+            if (infoLbl != null) infoLbl.setText("Enter your mobile number to receive an OTP");
+        }
     }
 
     private void initHomePanel() {
@@ -478,8 +624,11 @@ public class ParkSmartApp extends JFrame {
         }
 
         loginStatus.setText("Login success"); loginStatus.setForeground(new Color(0,128,0));
-        userInfoLabel.setText("Logged in: " + mobile);
-        showHome();
+
+        // Open the user page and close the login window
+        ParkSmartUserPage userPage = new ParkSmartUserPage(mobile);
+        userPage.setVisible(true);
+        this.dispose();
     }
 
     private void updateSlotGrid() {
@@ -739,6 +888,22 @@ public class ParkSmartApp extends JFrame {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(bg); g2.fillRoundRect(0,0,getWidth(),getHeight(),radius,radius); g2.dispose(); super.paintComponent(g);
+        }
+    }
+
+    static class RoundedLineBorder extends LineBorder {
+        private final int radius;
+        RoundedLineBorder(Color color, int thickness, int radius, boolean roundedCorners) {
+            super(color, thickness, roundedCorners);
+            this.radius = radius;
+        }
+        @Override public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(lineColor);
+            g2.setStroke(new BasicStroke(thickness));
+            g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius);
+            g2.dispose();
         }
     }
 
