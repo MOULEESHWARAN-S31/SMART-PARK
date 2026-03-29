@@ -1,143 +1,78 @@
 # ParkSmart - Hotel Parking Management System
 
-A complete Java Swing application for managing hotel parking with OTP-based login, calendar-based slot booking, payment processing, and exit verification workflow.
+A premium Java Swing desktop application for managing hotel parking with MySQL database integration (XAMPP), OTP-based login, calendar-based slot booking, and receipt generation.
 
-## Features
+## 🚀 Key Features
 
-- **Secure OTP Login**: Mobile number verification with time-limited OTP (3 minutes)
-- **Calendar Navigation**: Select booking dates with visual calendar interface
-- **Slot Management**: 16 parking slots with real-time availability status
-- **Booking System**: Complete booking workflow with payment simulation
-- **Exit Process**: Arrival verification, penalty/refund calculation, and OTP-based exit
-- **Booking History**: View and manage past bookings
-- **SQLite Database**: Persistent storage for users and bookings
+*   **Pill-Shaped UI Design**: Modern, consistent rounded aesthetic with smooth gradients.
+*   **MySQL Integration**: Persistent storage using XAMPP/MariaDB.
+*   **Real-Time Dashboard**: Interactive calendar and slot grid for parking management.
+*   **Secure OTP Workflow**: Random 4-digit OTP generation (printed to terminal) for login and booking verification.
+*   **Automatic Receipts**: Dynamically generated receipts with user-specific details.
+*   **Read-Only Mobile Field**: Prevents editing the logged-in user's mobile number during booking.
 
-## Project Structure
+## 📂 Project Structure
 
-```
+```text
 ParkSmartProject/
 ├── src/
 │   └── com/parksmart/
-│       └── ParkSmartApp.java    # Main application
+│       ├── ParkSmartApp.java    # Main Entry & DB Initialization
+│       └── ParkSmartUserPage.java # User Dashboard & UI Logic
 ├── lib/
-│   └── sqlite-jdbc-3.42.0.0.jar # SQLite JDBC driver
-├── bin/                         # Compiled classes (created after build)
-└── README.md                    # This file
+│   └── mysql-connector-j-9.6.0.jar # MySQL Connection Driver
+├── bin/                         # Compiled Class Files
+├── run.bat                      # Windows Runner Script
+└── README.md                    # Documentation
 ```
 
-## Prerequisites
+## 🛠️ Prerequisites
 
-- Java 11 or higher
-- Windows/Linux/Mac OS
+1.  **Java Development Kit (JDK) 11+**
+2.  **XAMPP Control Panel** (with Apache and MySQL services running)
+3.  **MySQL Database**:
+    *   Create a database named `parksmart_db` in `phpMyAdmin` (`http://localhost/phpmyadmin`).
+    *   The application will automatically create the tables (`users`, `bookings`) on first run.
 
-## Setup Instructions
+## ⚡ Setup & Execution
 
-1. **Clone/Download the project**
-   ```
-   # The project is already set up in ParkSmartProject/ directory
-   ```
+### 1. Database Setup
+Ensure XAMPP is running and you have created the `parksmart_db` database.
 
-2. **Compile the application**
-   ```bash
-   cd ParkSmartProject
-   javac -cp "lib/sqlite-jdbc-3.42.0.0.jar" -d bin src/com/parksmart/*.java
-   ```
+### 2. Run the Application (Windows)
+Simply double-click the `run.bat` file in the root directory.
 
-3. **Run the application**
-   ```bash
-   cd ParkSmartProject
-   java -cp "bin;lib/sqlite-jdbc-3.42.0.0.jar" com.parksmart.ParkSmartApp
-   ```
-
-   Or simply double-click `run.bat` on Windows.
-
-## Usage Workflow
-
-### Step 1: Login with OTP
-- Enter your 10-digit mobile number
-- Click "Get OTP" - OTP will be displayed in the terminal
-- Enter the OTP and click "Verify OTP"
-- OTP expires in 3 minutes
-
-### Step 2: Select Date & Slot
-- Use the calendar to select your parking date
-- Click on an available slot (blue color)
-- Occupied slots are shown in red
-
-### Step 3: Book & Pay
-- Fill in your name, vehicle number, entry time, and exit time
-- Click "Pay & Confirm Booking" (₹120 = ₹100 rent + ₹20 deposit)
-- Booking is confirmed and added to history
-
-### Step 4: Arrival & Exit
-- When you arrive, click OK on the arrival dialog
-- System calculates if you're early/late:
-  - **Early exit**: Refund ₹20 deposit
-  - **On time**: No additional charges
-  - **Late exit**: Penalty ₹50
-- Enter the exit OTP provided by the watchman
-- Slot is freed and booking marked as completed
-
-## Database Schema
-
-### Users Table
-```sql
-CREATE TABLE users (
-    mobile TEXT PRIMARY KEY,
-    name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+*Alternatively, use the terminal:*
+```bash
+./run.bat
 ```
 
-### Bookings Table
-```sql
-CREATE TABLE bookings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mobile TEXT,
-    slot_id TEXT,
-    booking_date TEXT,
-    entry_time TEXT,
-    exit_time TEXT,
-    vehicle TEXT,
-    status TEXT DEFAULT 'confirmed',
-    amount REAL DEFAULT 120.0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (mobile) REFERENCES users(mobile)
-);
+### 3. Manual Compilation (if needed)
+```bash
+javac -cp "lib/mysql-connector-j-9.6.0.jar" -d bin src/com/parksmart/*.java
 ```
 
-## Technical Details
+## 📖 Usage Guide
 
-- **UI Framework**: Java Swing with custom rounded panels
-- **Database**: SQLite with JDBC
-- **Architecture**: Single main class with CardLayout for screen navigation
-- **OTP System**: In-memory storage with expiration (3 minutes)
-- **Time Handling**: Java Time API for date/time operations
-- **Styling**: Custom colors and fonts for modern look
+1.  **Login**:
+    *   Enter your 10-digit mobile number.
+    *   Check your terminal/console for the generated **Login OTP**.
+    *   Verify and enter the dashboard.
+2.  **Booking**:
+    *   Select a date on the left calendar.
+    *   Click an available (Blue) slot.
+    *   Enter your name and vehicle details.
+    *   Check terminal for **Booking OTP** and verify.
+3.  **Success**:
+    *   View your modern, pill-shaped receipt.
+    *   Data is saved live to your XAMPP MySQL database.
 
-## Demo Data
+## ⚙️ Configuration
+The default database settings are:
+*   **Host**: `localhost:3306`
+*   **DB Name**: `parksmart_db`
+*   **User**: `root`
+*   **Password**: *[None]*
 
-The application includes demo bookings for testing:
-- Today's bookings on slots A1, A3
-- Future date bookings on A4, A7
-
-## Troubleshooting
-
-### Compilation Issues
-- Ensure Java 11+ is installed: `java -version`
-- Make sure the classpath includes the SQLite JAR
-
-### Runtime Warnings
-- **Native access warning**: The SQLite JDBC driver shows a warning about restricted methods. This is normal and doesn't affect functionality. The warning can be ignored.
-
-### Database Issues
-- The `parksmart.db` file is created automatically in the working directory
-- If database errors occur, delete the `.db` file and restart
-
-### OTP Not Showing
-- OTP is printed to the terminal/console where you run the application
-- Make sure you're running from command line, not IDE
-
-## License
-
-This project is for educational purposes.
+## 📜 License
+Educational project for ParkSmart - Hotel Parking Management.

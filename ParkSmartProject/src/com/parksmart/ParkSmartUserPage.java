@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.time.*;
 import java.time.format.*;
+import java.sql.*;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
@@ -44,7 +45,7 @@ public class ParkSmartUserPage extends JFrame {
     LocalDate calMonth     = LocalDate.now().withDayOfMonth(1);
 
     // ── UI refs ───────────────────────────────────────────────────────────
-    JLabel clockTimeLabel, clockDateLabel;
+
     JLabel calMonthLabel;
     JPanel calDaysPanel;
     JLabel freeCountLabel, occCountLabel;
@@ -86,17 +87,19 @@ public class ParkSmartUserPage extends JFrame {
 
     // ── Constructor ───────────────────────────────────────────────────────
     String loggedInMobile;
+    Connection dbConnection;
 
-    public ParkSmartUserPage(String mobile) {
+    public ParkSmartUserPage(String mobile, Connection dbConnection) {
         super("ParkSmart – Hotel Parking");
         this.loggedInMobile = mobile;
+        this.dbConnection = dbConnection;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setSize(1100, 780);
         setLocationRelativeTo(null);
         setResizable(true);
         getContentPane().setBackground(BG);
 
-        buildDemoBookings();
+        syncBookingsFromDB();
 
         setLayout(new BorderLayout());
         add(buildHeader(), BorderLayout.NORTH);
@@ -137,8 +140,7 @@ public class ParkSmartUserPage extends JFrame {
 
         add(main, BorderLayout.CENTER);
 
-        // clocks & refresh
-        startClockTimer();
+        // refresh only
         startSlotRefresh();
 
         refreshCalendar();
@@ -166,36 +168,51 @@ public class ParkSmartUserPage extends JFrame {
         l2.setForeground(FREE_C);
         logoPanel.add(l1); logoPanel.add(l2);
 
-        // Badge
-        JLabel badge = new JLabel("⬤  Live Availability");
-        badge.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        badge.setForeground(FREE_C);
-        badge.setBackground(FREE_BG);
-        badge.setOpaque(true);
-        badge.setBorder(BorderFactory.createCompoundBorder(
-            new LineBorder(FREE_C, 1, true),
-            BorderFactory.createEmptyBorder(4,12,4,12)
-        ));
+        // Logout button
+        JButton logoutBtn = new JButton("Logout");
+        logoutBtn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        logoutBtn.setForeground(Color.WHITE);
+        logoutBtn.setBackground(new Color(229, 57, 53));
+        logoutBtn.setFocusPainted(false);
+        logoutBtn.setContentAreaFilled(false);
+        logoutBtn.setOpaque(false);
+        logoutBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        logoutBtn.setBorder(BorderFactory.createEmptyBorder(8, 20, 8, 20));
+        logoutBtn.addActionListener(e -> {
+            ParkSmartApp loginPage = new ParkSmartApp();
+            loginPage.setVisible(true);
+            dispose();
+        });
 
-        // Clock
-        JPanel clockPanel = new JPanel();
-        clockPanel.setOpaque(false);
-        clockPanel.setLayout(new BoxLayout(clockPanel, BoxLayout.Y_AXIS));
-        clockTimeLabel = new JLabel("--:-- --");
-        clockTimeLabel.setFont(new Font("Segoe UI Black", Font.BOLD, 17));
-        clockTimeLabel.setForeground(TEXT);
-        clockTimeLabel.setAlignmentX(Component.RIGHT_ALIGNMENT);
-        clockDateLabel = new JLabel("...");
-        clockDateLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        clockDateLabel.setForeground(MUTED);
-        clockDateLabel.setAlignmentX(Component.RIGHT_ALIGNMENT);
-        clockPanel.add(clockTimeLabel);
-        clockPanel.add(clockDateLabel);
+        // Custom paint for rounded logout button
+        JButton styledLogout = new JButton("Logout") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(229, 57, 53));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        styledLogout.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        styledLogout.setForeground(Color.WHITE);
+        styledLogout.setFocusPainted(false);
+        styledLogout.setContentAreaFilled(false);
+        styledLogout.setOpaque(false);
+        styledLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        styledLogout.setBorder(BorderFactory.createEmptyBorder(8, 20, 8, 20));
+        styledLogout.setPreferredSize(new Dimension(100, 36));
+        styledLogout.addActionListener(e -> {
+            ParkSmartApp loginPage = new ParkSmartApp();
+            loginPage.setVisible(true);
+            dispose();
+        });
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 16, 16));
         right.setOpaque(false);
-        right.add(badge);
-        right.add(clockPanel);
+        right.add(styledLogout);
 
         h.add(logoPanel, BorderLayout.WEST);
         h.add(right,     BorderLayout.EAST);
@@ -220,8 +237,6 @@ public class ParkSmartUserPage extends JFrame {
         calMonthLabel = new JLabel("", JLabel.CENTER);
         calMonthLabel.setFont(new Font("Segoe UI Black", Font.BOLD, 14));
         prev.addActionListener(e -> {
-            LocalDate t = LocalDate.now().withDayOfMonth(1);
-            if (!calMonth.isBefore(t)) return;
             calMonth = calMonth.minusMonths(1);
             refreshCalendar();
         });
@@ -317,11 +332,20 @@ public class ParkSmartUserPage extends JFrame {
             boolean isPast     = date.isBefore(today);
             boolean isToday    = date.equals(today);
             boolean isSel      = date.equals(selectedDate);
+            boolean hasBooking = bookingsByDate.containsKey(dateKey(date)) &&
+                                 !bookingsByDate.get(dateKey(date)).isEmpty();
+
+            // Wrap cell in a small panel to allow dot indicator beneath number
+            JPanel cellWrap = new JPanel();
+            cellWrap.setLayout(new BoxLayout(cellWrap, BoxLayout.Y_AXIS));
+            cellWrap.setOpaque(false);
 
             JLabel cell = new JLabel(String.valueOf(day), JLabel.CENTER);
             cell.setFont(new Font("Segoe UI", Font.BOLD, 12));
             cell.setOpaque(true);
-            cell.setBorder(BorderFactory.createEmptyBorder(4,2,4,2));
+            cell.setHorizontalAlignment(JLabel.CENTER);
+            cell.setBorder(BorderFactory.createEmptyBorder(3,2,1,2));
+            cell.setAlignmentX(Component.CENTER_ALIGNMENT);
 
             if (isPast) {
                 cell.setForeground(new Color(197, 205, 216));
@@ -338,10 +362,32 @@ public class ParkSmartUserPage extends JFrame {
                 cell.setForeground(TEXT);
             }
 
+            // Booking dot indicator
+            JLabel dot = new JLabel("●", JLabel.CENTER);
+            dot.setFont(new Font("Segoe UI", Font.PLAIN, 6));
+            dot.setAlignmentX(Component.CENTER_ALIGNMENT);
+            if (hasBooking && !isPast) {
+                // Check if any occupied now
+                List<SlotBooking> blist = bookingsByDate.get(dateKey(date));
+                boolean hasOcc = false;
+                int now2 = nowMins();
+                for (SlotBooking b : blist) {
+                    if (isToday && now2 >= b.entryMins && now2 < b.exitMins) { hasOcc = true; break; }
+                    else if (!isToday) { hasOcc = true; break; }
+                }
+                dot.setForeground(hasOcc ? OCC_C : FREE_C);
+                dot.setVisible(true);
+            } else {
+                dot.setVisible(false);
+            }
+
+            cellWrap.add(cell);
+            cellWrap.add(dot);
+
             if (!isPast) {
                 final LocalDate d = date;
-                cell.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                cell.addMouseListener(new MouseAdapter() {
+                cellWrap.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                cellWrap.addMouseListener(new MouseAdapter() {
                     public void mouseClicked(MouseEvent e) {
                         selectedDate = d;
                         refreshCalendar();
@@ -357,7 +403,7 @@ public class ParkSmartUserPage extends JFrame {
                     }
                 });
             }
-            calDaysPanel.add(cell);
+            calDaysPanel.add(cellWrap);
         }
         calDaysPanel.revalidate();
         calDaysPanel.repaint();
@@ -408,10 +454,20 @@ public class ParkSmartUserPage extends JFrame {
 
             if (occupied) occ++; else free++;
 
-            JPanel slot = new JPanel();
+            final Color slotBg     = occupied ? OCC_BG : FREE_BG;
+            final Color slotBorder  = occupied ? new Color(229,57,53,120) : new Color(26,115,232,120);
+            RPanel slot = new RPanel(16, slotBg) {
+                @Override public void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(slotBorder);
+                    g2.setStroke(new BasicStroke(1.2f));
+                    g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 16, 16);
+                    g2.dispose();
+                }
+            };
             slot.setLayout(new BoxLayout(slot, BoxLayout.Y_AXIS));
-            slot.setBackground(occupied ? OCC_BG : FREE_BG);
-            slot.setBorder(new LineBorder(occupied ? new Color(229,57,53,90) : new Color(26,115,232,90), 1, true));
             slot.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
             JLabel idLbl = new JLabel(id, JLabel.CENTER);
@@ -435,12 +491,6 @@ public class ParkSmartUserPage extends JFrame {
                 public void mouseClicked(MouseEvent e) {
                     openBookingDialog(id, isOcc, fb);
                 }
-                public void mouseEntered(MouseEvent e) {
-                    slot.setBorder(new LineBorder(isOcc ? OCC_C : FREE_C, 2, true));
-                }
-                public void mouseExited(MouseEvent e) {
-                    slot.setBorder(new LineBorder(isOcc ? new Color(229,57,53,90) : new Color(26,115,232,90), 1, true));
-                }
             });
 
             slotGridPanel.add(slot);
@@ -455,9 +505,12 @@ public class ParkSmartUserPage extends JFrame {
     // ── Booking dialog ────────────────────────────────────────────────────
     void openBookingDialog(String slotId, boolean occupied, SlotBooking existingBooking) {
         JDialog dlg = new JDialog(this, "Book Slot " + slotId, true);
-        dlg.setSize(480, 560);
+        dlg.setSize(480, 640);
         dlg.setLocationRelativeTo(this);
         dlg.setResizable(false);
+
+        // OTP store for this dialog
+        final String[] dialogOtp = {null};
 
         CardLayout cl = new CardLayout();
         JPanel root = new JPanel(cl);
@@ -524,6 +577,10 @@ public class ParkSmartUserPage extends JFrame {
 
         JTextField nameF    = formField();
         JTextField mobileF  = formField();
+        mobileF.setText(loggedInMobile != null ? loggedInMobile : "");
+        mobileF.setEditable(false);
+        mobileF.setBackground(new Color(235, 240, 248));
+        mobileF.setForeground(new Color(80, 100, 130));
         JTextField vehicleF = formField();
         JTextField entryF   = formField();
         JTextField exitF    = formField();
@@ -537,7 +594,7 @@ public class ParkSmartUserPage extends JFrame {
             BorderFactory.createEmptyBorder(8,12,8,12)
         ));
         pricingBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 54));
-        JLabel priceLbl = new JLabel("<html><b style='font-size:14px'>₹120</b><br><span style='color:#6b7c99;font-size:10px'>₹100 rent + ₹20 deposit</span></html>");
+        JLabel priceLbl   = new JLabel("<html><b style='font-size:14px'>₹50</b><br><span style='color:#6b7c99;font-size:10px'>₹30 rent + ₹20 deposit</span></html>");
         JLabel depositLbl = new JLabel("<html><span style='color:#6b7c99;font-size:11px'>Total Amount</span><br><span style='font-size:10px;color:#1a73e8'>₹20 refundable deposit</span></html>");
         pricingBar.add(depositLbl, BorderLayout.WEST);
         pricingBar.add(priceLbl,   BorderLayout.EAST);
@@ -553,6 +610,14 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Enter a valid 10-digit mobile.","Validation",JOptionPane.WARNING_MESSAGE);
                 return;
             }
+            // Generate real OTP and print to terminal
+            String otp = String.format("%04d", new java.util.Random().nextInt(10000));
+            dialogOtp[0] = otp;
+            System.out.println("=== BOOKING OTP ===");
+            System.out.println("Slot: " + slotId);
+            System.out.println("Mobile: " + mobileF.getText().trim());
+            System.out.println("OTP: " + otp);
+            System.out.println("==================");
             cl.show(root,"step2");
         });
 
@@ -574,25 +639,37 @@ public class ParkSmartUserPage extends JFrame {
         step2.setLayout(new BoxLayout(step2, BoxLayout.Y_AXIS));
 
         JLabel s2title = sectionHead("Verify OTP");
-        JLabel s2sub   = mutedLbl("OTP sent to your mobile number");
-        JLabel otpHint = new JLabel("Demo OTP:  4  2  8  7");
-        otpHint.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        otpHint.setForeground(new Color(180, 120, 20));
-        otpHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel s2sub   = mutedLbl("OTP sent to your mobile — check terminal");
 
         JTextField[] otpBoxes = new JTextField[4];
         JPanel otpRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         otpRow.setOpaque(false);
         otpRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (int i = 0; i < 4; i++) {
-            JTextField tf = new JTextField(1);
+            JTextField tf = new JTextField(1) {
+                @Override public void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getBackground());
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
+                    g2.dispose();
+                    super.paintComponent(g);
+                }
+                @Override public void paintBorder(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(BORDER);
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 18, 18);
+                    g2.dispose();
+                }
+            };
             tf.setHorizontalAlignment(JTextField.CENTER);
             tf.setFont(new Font("Segoe UI Black", Font.BOLD, 20));
             tf.setPreferredSize(new Dimension(52, 52));
-            tf.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(BORDER, 1, true),
-                BorderFactory.createEmptyBorder(4,4,4,4)
-            ));
+            tf.setOpaque(false);
+            tf.setBackground(new Color(248,250,253));
+            tf.setBorder(BorderFactory.createEmptyBorder(4,4,4,4));
             final int idx = i;
             tf.getDocument().addDocumentListener(new javax.swing.event.DocumentListener(){
                 void upd(){ if(tf.getText().length()==1 && idx<3) otpBoxes[idx+1].requestFocus(); }
@@ -604,23 +681,72 @@ public class ParkSmartUserPage extends JFrame {
             otpRow.add(tf);
         }
 
+        // Declare receipt early so verifyBtn lambda can access it
+        RPanel receipt = new RPanel(12, new Color(248,250,253));
+        receipt.setLayout(new BoxLayout(receipt, BoxLayout.Y_AXIS));
+        receipt.setBorder(BorderFactory.createCompoundBorder(
+            new LineBorder(BORDER,1,true),
+            BorderFactory.createEmptyBorder(10,14,10,14)
+        ));
+        receipt.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
+
         JButton verifyBtn = bigBtn("Verify & Confirm Booking →", FREE_C);
         JButton backBtn   = outlineBtn("← Back");
         verifyBtn.addActionListener(e -> {
             StringBuilder sb = new StringBuilder();
             for (JTextField tf : otpBoxes) sb.append(tf.getText().trim());
-            if (!sb.toString().equals("4287")) {
-                JOptionPane.showMessageDialog(dlg,"Invalid OTP. Use demo OTP: 4 2 8 7","OTP Error",JOptionPane.ERROR_MESSAGE);
+            if (dialogOtp[0] == null || !sb.toString().equals(dialogOtp[0])) {
+                JOptionPane.showMessageDialog(dlg,"Invalid OTP. Check terminal for the correct OTP.","OTP Error",JOptionPane.ERROR_MESSAGE);
                 return;
             }
-            // Save booking
+            // Save booking locally
             int entry = parse12(entryF.getText().trim());
             int exit  = parse12(exitF.getText().trim());
             String key = dateKey(selectedDate);
             bookingsByDate.computeIfAbsent(key, k -> new ArrayList<>())
                 .add(new SlotBooking(slotId, entry < 0 ? 0 : entry, exit < 0 ? 60 : exit, fmtDate(selectedDate)));
+            
+            // Save booking to Database
+            if (dbConnection != null) {
+                String sql = "INSERT IGNORE INTO bookings (mobile, name, slot_id, booking_date, entry_time, exit_time, vehicle, status, amount) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', 50.0)";
+                try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
+                    stmt.setString(1, loggedInMobile != null ? loggedInMobile : "9876543210");
+                    stmt.setString(2, nameF.getText().trim());
+                    stmt.setString(3, slotId);
+                    stmt.setString(4, selectedDate.toString());
+                    stmt.setString(5, entryF.getText().trim());
+                    stmt.setString(6, exitF.getText().trim());
+                    stmt.setString(7, vehicleF.getText().trim());
+                    stmt.executeUpdate();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+
+                // Try to update user name if provided
+                if (!nameF.getText().trim().isEmpty()) {
+                    try (PreparedStatement stmt = dbConnection.prepareStatement("UPDATE users SET name = ? WHERE mobile = ?")) {
+                        stmt.setString(1, nameF.getText().trim());
+                        stmt.setString(2, loggedInMobile != null ? loggedInMobile : "9876543210");
+                        stmt.executeUpdate();
+                    } catch (SQLException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            }
+
             refreshSlotGrid();
             refreshCalendar();
+            // Build receipt dynamically with actual form values
+            receipt.removeAll();
+            receipt.add(receiptRow("Slot",       slotId));
+            receipt.add(receiptRow("Name",       nameF.getText()));
+            receipt.add(receiptRow("Vehicle",    vehicleF.getText()));
+            receipt.add(receiptRow("Date",       fmtDate(selectedDate)));
+            receipt.add(receiptRow("Entry",      entryF.getText()));
+            receipt.add(receiptRow("Exit",       exitF.getText()));
+            receipt.add(receiptRow("Amount Paid","₹50"));
+            receipt.revalidate();
+            receipt.repaint();
             cl.show(root,"step3");
         });
         backBtn.addActionListener(e -> cl.show(root,"step1"));
@@ -630,8 +756,6 @@ public class ParkSmartUserPage extends JFrame {
         step2.add(new JLabel("Enter 4-Digit OTP"));
         step2.add(Box.createRigidArea(new Dimension(0,6)));
         step2.add(otpRow);
-        step2.add(Box.createRigidArea(new Dimension(0,10)));
-        step2.add(otpHint);
         step2.add(Box.createRigidArea(new Dimension(0,20)));
         step2.add(verifyBtn);
         step2.add(Box.createRigidArea(new Dimension(0,6)));
@@ -642,11 +766,26 @@ public class ParkSmartUserPage extends JFrame {
         step3.setBackground(CARD);
         step3.setLayout(new BoxLayout(step3, BoxLayout.Y_AXIS));
 
+        // Green tick icon — large checkmark on a soft green circle background
+        JPanel tickCircle = new RPanel(40, new Color(220, 252, 231)) {
+            @Override public void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(220,252,231));
+                g2.fillRoundRect(0,0,getWidth(),getHeight(),40,40);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        tickCircle.setPreferredSize(new Dimension(60,60));
+        tickCircle.setMaximumSize(new Dimension(60,60));
+        tickCircle.setBorder(BorderFactory.createEmptyBorder(0,0,0,0));
+        tickCircle.setAlignmentX(Component.CENTER_ALIGNMENT);
         JLabel checkIcon = new JLabel("✓", JLabel.CENTER);
-        checkIcon.setFont(new Font("Segoe UI", Font.BOLD, 36));
-        checkIcon.setForeground(new Color(34,197,94));
-        checkIcon.setAlignmentX(Component.CENTER_ALIGNMENT);
-        checkIcon.setBorder(BorderFactory.createEmptyBorder(8,0,8,0));
+        checkIcon.setFont(new Font("Segoe UI", Font.BOLD, 30));
+        checkIcon.setForeground(new Color(22, 163, 74));
+        tickCircle.setLayout(new BorderLayout());
+        tickCircle.add(checkIcon, BorderLayout.CENTER);
 
         JLabel s3title = new JLabel("Booking Confirmed!", JLabel.CENTER);
         s3title.setFont(new Font("Segoe UI Black", Font.BOLD, 22));
@@ -659,37 +798,31 @@ public class ParkSmartUserPage extends JFrame {
         s3sub.setAlignmentX(Component.CENTER_ALIGNMENT);
         s3sub.setBorder(BorderFactory.createEmptyBorder(4,0,14,0));
 
-        RPanel receipt = new RPanel(12, new Color(248,250,253));
-        receipt.setLayout(new BoxLayout(receipt, BoxLayout.Y_AXIS));
-        receipt.setBorder(BorderFactory.createCompoundBorder(
-            new LineBorder(BORDER,1,true),
-            BorderFactory.createEmptyBorder(10,14,10,14)
-        ));
-        receipt.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
-        receipt.add(receiptRow("Slot",       slotId));
-        receipt.add(receiptRow("Name",       nameF.getText()));
-        receipt.add(receiptRow("Vehicle",    vehicleF.getText()));
-        receipt.add(receiptRow("Date",       fmtDate(selectedDate)));
-        receipt.add(receiptRow("Entry",      entryF.getText()));
-        receipt.add(receiptRow("Exit",       exitF.getText()));
-        receipt.add(receiptRow("Amount Paid","₹120"));
+        // receipt is already declared above (before verifyBtn listener)
 
-        JLabel refundBadge = new JLabel("💙  Leave before exit time to get ₹20 refund!", JLabel.CENTER);
-        refundBadge.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        refundBadge.setForeground(FREE_C);
-        refundBadge.setOpaque(true);
-        refundBadge.setBackground(FREE_BG);
-        refundBadge.setBorder(BorderFactory.createCompoundBorder(
-            new LineBorder(new Color(26,115,232,80),1,true),
-            BorderFactory.createEmptyBorder(8,10,8,10)
-        ));
+        RPanel refundBadge = new RPanel(16, FREE_BG) {
+            @Override public void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(26,115,232,80));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,16,16);
+                g2.dispose();
+            }
+        };
+        refundBadge.setLayout(new FlowLayout(FlowLayout.CENTER, 0, 8));
+        JLabel refundLbl = new JLabel("💙  Leave before exit time to get ₹20 refund!");
+        refundLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        refundLbl.setForeground(FREE_C);
+        refundBadge.add(refundLbl);
         refundBadge.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         refundBadge.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton doneBtn = bigBtn("Done", FREE_C);
         doneBtn.addActionListener(e -> dlg.dispose());
 
-        step3.add(checkIcon); step3.add(s3title); step3.add(s3sub);
+        step3.add(tickCircle); step3.add(Box.createRigidArea(new Dimension(0,8))); step3.add(s3title); step3.add(s3sub);
         step3.add(receipt); step3.add(Box.createRigidArea(new Dimension(0,10)));
         step3.add(refundBadge); step3.add(Box.createRigidArea(new Dimension(0,14)));
         step3.add(doneBtn);
@@ -741,12 +874,7 @@ public class ParkSmartUserPage extends JFrame {
 
     // ── Timers ────────────────────────────────────────────────────────────
     void startClockTimer() {
-        javax.swing.Timer t = new javax.swing.Timer(1000, e -> {
-            LocalDateTime now = LocalDateTime.now();
-            clockTimeLabel.setText(now.format(DateTimeFormatter.ofPattern("hh:mm:ss a")));
-            clockDateLabel.setText(now.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")));
-        });
-        t.start();
+        // Clock removed from header - no longer needed
     }
 
     void startSlotRefresh() {
@@ -770,12 +898,26 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     JButton navBtn(String t) {
-        JButton b = new JButton(t);
+        JButton b = new JButton(t) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.setColor(BORDER);
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 14, 14);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
         b.setFont(new Font("Segoe UI",Font.PLAIN,16));
         b.setFocusPainted(false);
+        b.setContentAreaFilled(false);
+        b.setOpaque(false);
         b.setBackground(CARD);
         b.setForeground(MUTED);
-        b.setBorder(new LineBorder(BORDER,1,true));
+        b.setBorder(BorderFactory.createEmptyBorder(2,6,2,6));
         b.setPreferredSize(new Dimension(30,30));
         return b;
     }
@@ -851,13 +993,28 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     JTextField formField() {
-        JTextField tf = new JTextField();
+        JTextField tf = new JTextField() {
+            @Override public void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+            @Override public void paintBorder(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(isEditable() ? BORDER : new Color(190, 205, 225));
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 18, 18);
+                g2.dispose();
+            }
+        };
+        tf.setOpaque(false);
         tf.setFont(new Font("Segoe UI",Font.PLAIN,13));
-        tf.setBorder(BorderFactory.createCompoundBorder(
-            new LineBorder(BORDER,1,true),
-            BorderFactory.createEmptyBorder(6,10,6,10)
-        ));
         tf.setBackground(new Color(248,250,253));
+        tf.setBorder(BorderFactory.createEmptyBorder(6,10,6,10));
         tf.setMaximumSize(new Dimension(Integer.MAX_VALUE,38));
         return tf;
     }
@@ -880,11 +1037,23 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     JButton bigBtn(String t, Color bg) {
-        JButton b = new JButton(t);
+        Color[] bgRef = {bg};
+        JButton b = new JButton(t) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(bgRef[0]);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
         b.setFont(new Font("Segoe UI",Font.BOLD,14));
         b.setForeground(Color.WHITE);
         b.setBackground(bg);
         b.setFocusPainted(false);
+        b.setContentAreaFilled(false);
+        b.setOpaque(false);
         b.setBorder(BorderFactory.createEmptyBorder(11,0,11,0));
         b.setMaximumSize(new Dimension(Integer.MAX_VALUE,46));
         b.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -893,12 +1062,26 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     JButton outlineBtn(String t) {
-        JButton b = new JButton(t);
+        JButton b = new JButton(t) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
+                g2.setColor(BORDER);
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 22, 22);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
         b.setFont(new Font("Segoe UI",Font.PLAIN,13));
         b.setForeground(TEXT);
         b.setBackground(CARD);
         b.setFocusPainted(false);
-        b.setBorder(new LineBorder(BORDER,1,true));
+        b.setContentAreaFilled(false);
+        b.setOpaque(false);
+        b.setBorder(BorderFactory.createEmptyBorder(8,0,8,0));
         b.setMaximumSize(new Dimension(Integer.MAX_VALUE,40));
         b.setAlignmentX(Component.LEFT_ALIGNMENT);
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -917,8 +1100,38 @@ public class ParkSmartUserPage extends JFrame {
         }
     }
 
+    // ── DB Sync ───────────────────────────────────────────────────────────
+    void syncBookingsFromDB() {
+        if (dbConnection == null) {
+            buildDemoBookings();
+            return;
+        }
+        bookingsByDate.clear();
+        String sql = "SELECT * FROM bookings WHERE status = 'confirmed'";
+        try (Statement stmt = dbConnection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String dDate = rs.getString("booking_date");
+                if (dDate == null || dDate.isBlank()) continue;
+                try {
+                    LocalDate d = LocalDate.parse(dDate); // yyyy-MM-dd
+                    String slot = rs.getString("slot_id");
+                    int entry = parse12(rs.getString("entry_time"));
+                    int exit = parse12(rs.getString("exit_time"));
+                    if (entry < 0) entry = 0;
+                    if (exit < 0) exit = 60;
+                    bookingsByDate.computeIfAbsent(dateKey(d), k -> new ArrayList<>())
+                        .add(new SlotBooking(slot, entry, exit, fmtDate(d)));
+                } catch (Exception e) {}
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            buildDemoBookings(); // fallback
+        }
+    }
+
     // ── Main ──────────────────────────────────────────────────────────────
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new ParkSmartUserPage("9876543210").setVisible(true));
+        SwingUtilities.invokeLater(() -> new ParkSmartUserPage("9876543210", null).setVisible(true));
     }
 }

@@ -81,19 +81,17 @@ public class ParkSmartApp extends JFrame {
         rootPanel.add(homePanel, "home");
         getContentPane().add(rootPanel);
 
-        initDemoBookings();
-
         showLogin();
     }
 
     private void initDatabase() throws SQLException {
         try {
-            Class.forName("org.sqlite.JDBC");
+            Class.forName("com.mysql.cj.jdbc.Driver");
         } catch (ClassNotFoundException e) {
-            throw new SQLException("SQLite JDBC driver not found");
+            throw new SQLException("MySQL JDBC driver not found");
         }
 
-        dbConnection = DriverManager.getConnection("jdbc:sqlite:parksmart.db");
+        dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/parksmart_db", "root", "");
         createTables();
     }
 
@@ -102,8 +100,8 @@ public class ParkSmartApp extends JFrame {
             // Users table
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    mobile TEXT PRIMARY KEY,
-                    name TEXT,
+                    mobile VARCHAR(20) PRIMARY KEY,
+                    name VARCHAR(100),
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """);
@@ -111,14 +109,15 @@ public class ParkSmartApp extends JFrame {
             // Bookings table
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS bookings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    mobile TEXT,
-                    slot_id TEXT,
-                    booking_date TEXT,
-                    entry_time TEXT,
-                    exit_time TEXT,
-                    vehicle TEXT,
-                    status TEXT DEFAULT 'confirmed',
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    mobile VARCHAR(20),
+                    name VARCHAR(100),
+                    slot_id VARCHAR(10),
+                    booking_date VARCHAR(20),
+                    entry_time VARCHAR(20),
+                    exit_time VARCHAR(20),
+                    vehicle VARCHAR(30),
+                    status VARCHAR(20) DEFAULT 'confirmed',
                     amount REAL DEFAULT 120.0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (mobile) REFERENCES users(mobile)
@@ -127,7 +126,7 @@ public class ParkSmartApp extends JFrame {
 
             // Insert demo user if not exists
             stmt.execute("""
-                INSERT OR IGNORE INTO users (mobile, name) VALUES
+                INSERT IGNORE INTO users (mobile, name) VALUES
                 ('9876543210', 'Demo User')
             """);
         }
@@ -137,7 +136,7 @@ public class ParkSmartApp extends JFrame {
         loginPanel = new JPanel(new GridBagLayout());
         loginPanel.setBackground(new Color(239, 244, 250));
 
-        JPanel card = new RoundedPanel(26, Color.WHITE);
+        JPanel card = new RoundedPanel(30, Color.WHITE);
         card.setPreferredSize(new Dimension(420, 620));
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
@@ -155,7 +154,7 @@ public class ParkSmartApp extends JFrame {
         subtitle.setBorder(BorderFactory.createEmptyBorder(6, 0, 18, 0));
 
         // ── Toggle tabs ──
-        JPanel toggleWrapper = new RoundedPanel(18, new Color(236, 243, 255));
+        JPanel toggleWrapper = new RoundedPanel(28, new Color(236, 243, 255));
         toggleWrapper.setLayout(new GridLayout(1, 2, 8, 0));
         toggleWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
         toggleWrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -205,7 +204,7 @@ public class ParkSmartApp extends JFrame {
         mobileLabel.setForeground(new Color(118, 128, 146));
         mobileLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JPanel inputCard = new RoundedPanel(14, new Color(245, 248, 253));
+        JPanel inputCard = new RoundedPanel(22, new Color(245, 248, 253));
         inputCard.setLayout(new BorderLayout(8, 0));
         inputCard.setMaximumSize(new Dimension(372, 50));
         inputCard.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
@@ -225,12 +224,8 @@ public class ParkSmartApp extends JFrame {
         inputCard.add(mobileField, BorderLayout.CENTER);
 
         // ── Get OTP button ──
-        JButton getOtp = new JButton("Get OTP →");
+        JButton getOtp = new RoundedButton("Get OTP →", new Color(27, 122, 252), Color.WHITE, 28);
         getOtp.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        getOtp.setForeground(Color.WHITE);
-        getOtp.setBackground(new Color(27, 122, 252));
-        getOtp.setFocusPainted(false);
-        getOtp.setBorder(new RoundedLineBorder(new Color(24, 90, 201), 0, 24, true));
         getOtp.setMaximumSize(new Dimension(372, 52));
         getOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
         getOtp.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -257,7 +252,7 @@ public class ParkSmartApp extends JFrame {
         otpLabel.setForeground(new Color(118, 128, 146));
         otpLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JPanel otpInputCard = new RoundedPanel(14, new Color(245, 248, 253));
+        JPanel otpInputCard = new RoundedPanel(22, new Color(245, 248, 253));
         otpInputCard.setLayout(new BorderLayout());
         otpInputCard.setMaximumSize(new Dimension(372, 50));
         otpInputCard.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
@@ -270,12 +265,8 @@ public class ParkSmartApp extends JFrame {
         otpField.setForeground(new Color(16, 29, 47));
         otpInputCard.add(otpField, BorderLayout.CENTER);
 
-        JButton verifyOtp = new JButton("Verify & Login →");
+        JButton verifyOtp = new RoundedButton("Verify & Login →", new Color(12, 131, 70), Color.WHITE, 28);
         verifyOtp.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        verifyOtp.setForeground(Color.WHITE);
-        verifyOtp.setBackground(new Color(12, 131, 70));
-        verifyOtp.setFocusPainted(false);
-        verifyOtp.setBorder(new RoundedLineBorder(new Color(9, 100, 53), 0, 24, true));
         verifyOtp.setMaximumSize(new Dimension(372, 52));
         verifyOtp.setAlignmentX(Component.LEFT_ALIGNMENT);
         verifyOtp.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -318,7 +309,7 @@ public class ParkSmartApp extends JFrame {
         JToggleButton btn = new JToggleButton(text);
         btn.setFont(new Font("Segoe UI", Font.BOLD, 15));
         btn.setFocusable(false);
-        btn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+        btn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 22, true));
         btn.setBackground(new Color(245, 250, 255));
         btn.setForeground(new Color(42, 84, 148));
         return btn;
@@ -330,16 +321,16 @@ public class ParkSmartApp extends JFrame {
         JLabel infoLbl = (JLabel) loginPanel.getClientProperty("infoLbl");
         if ("watchman".equals(mode)) {
             loginUserBtn.setForeground(new Color(85, 106, 140));
-            loginUserBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+            loginUserBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 22, true));
             loginWatchBtn.setForeground(new Color(20, 89, 235));
-            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 16, true));
+            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 22, true));
             if (heading != null) heading.setText("Watchman Access");
             if (infoLbl != null) infoLbl.setText("Enter your registered watchman mobile number");
         } else {
             loginUserBtn.setForeground(new Color(20, 89, 235));
-            loginUserBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 16, true));
+            loginUserBtn.setBorder(new RoundedLineBorder(new Color(57, 120, 245), 2, 22, true));
             loginWatchBtn.setForeground(new Color(85, 106, 140));
-            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 16, true));
+            loginWatchBtn.setBorder(new RoundedLineBorder(new Color(188, 210, 249), 1, 22, true));
             if (heading != null) heading.setText("Welcome Back");
             if (infoLbl != null) infoLbl.setText("Enter your mobile number to receive an OTP");
         }
@@ -555,30 +546,29 @@ public class ParkSmartApp extends JFrame {
     private JPanel colorDot(Color color){ JPanel dot = new JPanel(); dot.setBackground(color); dot.setPreferredSize(new Dimension(12,12)); dot.setBorder(new LineBorder(color)); dot.setOpaque(true); return dot; }
     private JButton navButton(String label){ JButton b=new JButton(label); b.setFocusPainted(false); b.setBackground(Color.WHITE); b.setBorder(new LineBorder(BORDER)); return b; }
 
-    private void initDemoBookings() {
-        try {
-            LocalDate today = LocalDate.now();
-            addBookingToDB(today, "A1", "09:00 AM", "11:00 AM", "Demo", "TN 12 XX 1234");
-            addBookingToDB(today, "A3", "10:30 AM", "02:30 PM", "Demo", "TN 12 XX 1234");
-            addBookingToDB(today.plusDays(1), "A4", "11:00 AM", "02:00 PM", "Demo", "TN 12 XX 1234");
-            addBookingToDB(today.plusDays(2), "A7", "03:00 PM", "06:00 PM", "Demo", "TN 12 XX 1234");
-        } catch (SQLException e) {
-            System.err.println("Error initializing demo bookings: " + e.getMessage());
+    private void addBookingToDB(LocalDate date, String slotId, String entry, String exit, String name, String vehicle) throws SQLException {
+        String sql = "INSERT IGNORE INTO bookings (mobile, name, slot_id, booking_date, entry_time, exit_time, vehicle, status, amount) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', 50.0)";
+        try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
+            stmt.setString(1, loggedInMobile != null ? loggedInMobile : "9876543210");
+            stmt.setString(2, name != null ? name.trim() : "");
+            stmt.setString(3, slotId);
+            stmt.setString(4, date.toString());
+            stmt.setString(5, entry);
+            stmt.setString(6, exit);
+            stmt.setString(7, vehicle);
+            stmt.executeUpdate();
+            
+            // Try to update user name if provided
+            if (name != null && !name.trim().isEmpty()) {
+                try (PreparedStatement stmt2 = dbConnection.prepareStatement("UPDATE users SET name = ? WHERE mobile = ?")) {
+                    stmt2.setString(1, name.trim());
+                    stmt2.setString(2, loggedInMobile != null ? loggedInMobile : "9876543210");
+                    stmt2.executeUpdate();
+                } catch (SQLException ex) { ex.printStackTrace(); }
+            }
         }
     }
 
-    private void addBookingToDB(LocalDate date, String slotId, String entry, String exit, String name, String vehicle) throws SQLException {
-        String sql = "INSERT OR IGNORE INTO bookings (mobile, slot_id, booking_date, entry_time, exit_time, vehicle, status) VALUES (?, ?, ?, ?, ?, ?, 'confirmed')";
-        try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
-            stmt.setString(1, loggedInMobile != null ? loggedInMobile : "9876543210");
-            stmt.setString(2, slotId);
-            stmt.setString(3, date.toString());
-            stmt.setString(4, entry);
-            stmt.setString(5, exit);
-            stmt.setString(6, vehicle);
-            stmt.executeUpdate();
-        }
-    }
 
     private void showLogin() { rootCardLayout.show(rootPanel, "login"); }
     private void showHome() { rootCardLayout.show(rootPanel, "home"); updateSlotGrid(); loadHistoryFromDB(); }
@@ -613,7 +603,7 @@ public class ParkSmartApp extends JFrame {
         loggedInMobile = mobile;
         try {
             // Ensure user exists in DB
-            String sql = "INSERT OR IGNORE INTO users (mobile) VALUES (?)";
+            String sql = "INSERT IGNORE INTO users (mobile) VALUES (?)";
             try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
                 stmt.setString(1, mobile);
                 stmt.executeUpdate();
@@ -626,7 +616,7 @@ public class ParkSmartApp extends JFrame {
         loginStatus.setText("Login success"); loginStatus.setForeground(new Color(0,128,0));
 
         // Open the user page and close the login window
-        ParkSmartUserPage userPage = new ParkSmartUserPage(mobile);
+        ParkSmartUserPage userPage = new ParkSmartUserPage(mobile, dbConnection);
         userPage.setVisible(true);
         this.dispose();
     }
@@ -904,6 +894,29 @@ public class ParkSmartApp extends JFrame {
             g2.setStroke(new BasicStroke(thickness));
             g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius);
             g2.dispose();
+        }
+    }
+
+    static class RoundedButton extends JButton {
+        private Color bgColor;
+        private int radius;
+        RoundedButton(String text, Color bgColor, Color fgColor, int radius) {
+            super(text);
+            this.bgColor = bgColor;
+            this.radius = radius;
+            setForeground(fgColor);
+            setFocusPainted(false);
+            setContentAreaFilled(false);
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+        }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(bgColor);
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+            g2.dispose();
+            super.paintComponent(g);
         }
     }
 
