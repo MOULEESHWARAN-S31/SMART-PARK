@@ -1,4 +1,4 @@
-package com.parksmart;
+  package com.parksmart;
 
 import java.awt.*;
 import java.awt.event.*;
@@ -210,8 +210,34 @@ public class ParkSmartUserPage extends JFrame {
             dispose();
         });
 
+        // Custom paint for rounded refresh button
+        JButton styledRefresh = new JButton("Refresh") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(26, 115, 232));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        styledRefresh.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        styledRefresh.setForeground(Color.WHITE);
+        styledRefresh.setFocusPainted(false);
+        styledRefresh.setContentAreaFilled(false);
+        styledRefresh.setOpaque(false);
+        styledRefresh.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        styledRefresh.setBorder(BorderFactory.createEmptyBorder(8, 20, 8, 20));
+        styledRefresh.setPreferredSize(new Dimension(100, 36));
+        styledRefresh.addActionListener(e -> {
+            syncBookingsFromDB();
+            refreshSlotGrid();
+        });
+
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 16, 16));
         right.setOpaque(false);
+        right.add(styledRefresh);
         right.add(styledLogout);
 
         h.add(logoPanel, BorderLayout.WEST);
@@ -523,48 +549,98 @@ public class ParkSmartUserPage extends JFrame {
         step0.setBackground(CARD);
         step0.setLayout(new BoxLayout(step0, BoxLayout.Y_AXIS));
 
-        JLabel s0title = sectionHead("Slot Currently Occupied");
-        JLabel s0sub   = mutedLbl("Current booking details for this slot");
-        JLabel s0badge = badge(slotId + " – Occupied", OCC_C, OCC_BG);
+        // ── Step 0: Occupied info (own slot vs other's slot) ─────────────
+        boolean isOwnBooking = isUserOwnBooking(slotId);
 
-        RPanel occPanel = new RPanel(12, new Color(255,245,245));
-        occPanel.setLayout(new BoxLayout(occPanel, BoxLayout.Y_AXIS));
-        occPanel.setBorder(BorderFactory.createCompoundBorder(
-            new LineBorder(new Color(229,57,53,64),2,true),
-            BorderFactory.createEmptyBorder(10,12,10,12)
-        ));
-        occPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+        if (isOwnBooking && existingBooking != null) {
+            // ── OWN SLOT: Extend / Cancel / Exit Verify ──────────────────
+            JLabel s0title = sectionHead("Your Booked Slot");
+            JLabel s0sub   = mutedLbl("Manage your active booking for slot " + slotId);
+            JLabel s0badge = badge(slotId + " – Your Booking", FREE_C, FREE_BG);
 
-        String[] occEntryS = {existingBooking!=null ? fmt12(existingBooking.entryMins) : "—"};
-        String[] occExitS  = {existingBooking!=null ? fmt12(existingBooking.exitMins)  : "—"};
-        String occDateS    =  existingBooking!=null ? existingBooking.dateDisp : fmtDate(selectedDate);
+            RPanel ownPanel = new RPanel(12, new Color(240, 248, 255));
+            ownPanel.setLayout(new BoxLayout(ownPanel, BoxLayout.Y_AXIS));
+            ownPanel.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(26,115,232,64),2,true),
+                BorderFactory.createEmptyBorder(10,12,10,12)
+            ));
+            ownPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+            ownPanel.add(occInfoRow("Slot",       slotId));
+            ownPanel.add(occInfoRow("Entry Time", fmt12(existingBooking.entryMins)));
+            ownPanel.add(occInfoRow("Exit Time",  fmt12(existingBooking.exitMins)));
+            ownPanel.add(occInfoRow("Status",     "● Active"));
 
-        occPanel.add(occInfoRow("Date",       occDateS));
-        occPanel.add(occInfoRow("Entry Time", occEntryS[0]));
-        occPanel.add(occInfoRow("Exit Time",  occExitS[0]));
-        occPanel.add(occInfoRow("Status",     "● Occupied"));
+            JButton extendBtn = bigBtn("⏰  Extend Time",  new Color(245, 158, 11));
+            JButton cancelBtn = bigBtn("✕  Cancel Slot",   new Color(229, 57, 53));
+            JButton exitBtn   = bigBtn("✓  Exit Verify",   new Color(22, 163, 74));
 
-        // "free from" banner
-        JPanel freeBanner = new RPanel(10, FREE_BG);
-        freeBanner.setLayout(new FlowLayout(FlowLayout.LEFT, 8, 6));
-        freeBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-        JLabel freeFromLbl = new JLabel("🕐  Slot free from " + occExitS[0]);
-        freeFromLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        freeFromLbl.setForeground(FREE_C);
-        freeBanner.add(freeFromLbl);
+            extendBtn.addActionListener(ev -> showExtendDialog(dlg, existingBooking));
+            cancelBtn.addActionListener(ev -> {
+                int confirm = JOptionPane.showConfirmDialog(dlg,
+                    "Cancel booking for slot " + slotId + "?\nYour ₹20 deposit will be refunded.",
+                    "Confirm Cancel", JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    cancelBookingInDB(slotId);
+                    String k2 = dateKey(selectedDate);
+                    List<SlotBooking> bl = bookingsByDate.get(k2);
+                    if (bl != null) bl.removeIf(b -> b.slotId.equals(slotId));
+                    refreshSlotGrid(); refreshCalendar(); dlg.dispose();
+                    JOptionPane.showMessageDialog(null,
+                        "✅ Slot " + slotId + " cancelled.\n₹20 deposit refunded.",
+                        "Cancelled", JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+            exitBtn.addActionListener(ev -> {
+                String exitOtp = String.format("%04d", new java.util.Random().nextInt(10000));
+                ExitOtpStore.put(dbConnection, slotId, exitOtp);
+                showExitOtpPopup(dlg, slotId, exitOtp);
+            });
 
-        JButton bookAfterBtn = bigBtn("Book After " + occExitS[0] + " →", FREE_C);
-        JButton cancelBtn0   = outlineBtn("Cancel – Choose Another Slot");
+            step0.add(s0title); step0.add(s0sub); step0.add(Box.createRigidArea(new Dimension(0,8)));
+            step0.add(s0badge); step0.add(Box.createRigidArea(new Dimension(0,10)));
+            step0.add(ownPanel); step0.add(Box.createRigidArea(new Dimension(0,14)));
+            step0.add(extendBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
+            step0.add(cancelBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
+            step0.add(exitBtn);
+        } else {
+            // ── OTHER'S SLOT: show occupied info ─────────────────────────
+            JLabel s0title = sectionHead("Slot Currently Occupied");
+            JLabel s0sub   = mutedLbl("Current booking details for this slot");
+            JLabel s0badge = badge(slotId + " – Occupied", OCC_C, OCC_BG);
 
-        bookAfterBtn.addActionListener(e -> cl.show(root, "step1"));
-        cancelBtn0.addActionListener(e -> dlg.dispose());
+            RPanel occPanel = new RPanel(12, new Color(255,245,245));
+            occPanel.setLayout(new BoxLayout(occPanel, BoxLayout.Y_AXIS));
+            occPanel.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(229,57,53,64),2,true),
+                BorderFactory.createEmptyBorder(10,12,10,12)
+            ));
+            occPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+            String occExit = existingBooking!=null ? fmt12(existingBooking.exitMins) : "—";
+            occPanel.add(occInfoRow("Date",       existingBooking!=null ? existingBooking.dateDisp : fmtDate(selectedDate)));
+            occPanel.add(occInfoRow("Entry Time", existingBooking!=null ? fmt12(existingBooking.entryMins) : "—"));
+            occPanel.add(occInfoRow("Exit Time",  occExit));
+            occPanel.add(occInfoRow("Status",     "● Occupied"));
 
-        step0.add(s0title); step0.add(s0sub); step0.add(Box.createRigidArea(new Dimension(0,8)));
-        step0.add(s0badge); step0.add(Box.createRigidArea(new Dimension(0,10)));
-        step0.add(occPanel); step0.add(Box.createRigidArea(new Dimension(0,8)));
-        step0.add(freeBanner); step0.add(Box.createRigidArea(new Dimension(0,14)));
-        step0.add(bookAfterBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
-        step0.add(cancelBtn0);
+            JPanel freeBanner = new RPanel(10, FREE_BG);
+            freeBanner.setLayout(new FlowLayout(FlowLayout.LEFT, 8, 6));
+            freeBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+            JLabel freeFromLbl = new JLabel("🕐  Slot free from " + occExit);
+            freeFromLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            freeFromLbl.setForeground(FREE_C);
+            freeBanner.add(freeFromLbl);
+
+            JButton bookAfterBtn = bigBtn("Book After " + occExit + " →", FREE_C);
+            JButton cancelBtn0   = outlineBtn("Cancel – Choose Another Slot");
+            bookAfterBtn.addActionListener(e -> cl.show(root, "step1"));
+            cancelBtn0.addActionListener(e -> dlg.dispose());
+
+            step0.add(s0title); step0.add(s0sub); step0.add(Box.createRigidArea(new Dimension(0,8)));
+            step0.add(s0badge); step0.add(Box.createRigidArea(new Dimension(0,10)));
+            step0.add(occPanel); step0.add(Box.createRigidArea(new Dimension(0,8)));
+            step0.add(freeBanner); step0.add(Box.createRigidArea(new Dimension(0,14)));
+            step0.add(bookAfterBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
+            step0.add(cancelBtn0);
+        }
 
         // ── Step 1: Booking form ──────────────────────────────────────────
         JPanel step1 = new JPanel();
@@ -610,14 +686,10 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Enter a valid 10-digit mobile.","Validation",JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            // Generate real OTP and print to terminal
+            // Generate OTP and show in POPUP (not terminal)
             String otp = String.format("%04d", new java.util.Random().nextInt(10000));
             dialogOtp[0] = otp;
-            System.out.println("=== BOOKING OTP ===");
-            System.out.println("Slot: " + slotId);
-            System.out.println("Mobile: " + mobileF.getText().trim());
-            System.out.println("OTP: " + otp);
-            System.out.println("==================");
+            showBookingOtpPopup(dlg, mobileF.getText().trim(), otp);
             cl.show(root,"step2");
         });
 
@@ -639,7 +711,7 @@ public class ParkSmartUserPage extends JFrame {
         step2.setLayout(new BoxLayout(step2, BoxLayout.Y_AXIS));
 
         JLabel s2title = sectionHead("Verify OTP");
-        JLabel s2sub   = mutedLbl("OTP sent to your mobile — check terminal");
+        JLabel s2sub   = mutedLbl("OTP has been shown in a popup on your screen");
 
         JTextField[] otpBoxes = new JTextField[4];
         JPanel otpRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -835,6 +907,173 @@ public class ParkSmartUserPage extends JFrame {
         cl.show(root, occupied ? "step0" : "step1");
 
         dlg.setVisible(true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  HELPER: check if the logged-in user owns this slot's booking
+    // ═══════════════════════════════════════════════════════════════════
+    boolean isUserOwnBooking(String slotId) {
+        if (loggedInMobile == null || dbConnection == null) return false;
+        try {
+            String sql = "SELECT id FROM bookings WHERE slot_id=? AND mobile=? AND status='confirmed' AND booking_date=?";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, slotId);
+                ps.setString(2, loggedInMobile);
+                ps.setString(3, selectedDate.toString());
+                ResultSet rs = ps.executeQuery();
+                return rs.next();
+            }
+        } catch (Exception e) { return false; }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  POPUP: Booking OTP (dark themed, 60s countdown)
+    // ═══════════════════════════════════════════════════════════════════
+    void showBookingOtpPopup(JDialog parent, String mobile, String otp) {
+        JDialog pop = new JDialog(parent, "Your Booking OTP", false);
+        pop.setSize(320, 270); pop.setLocationRelativeTo(parent);
+        pop.setResizable(false); pop.setUndecorated(true);
+
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(new Color(22,28,52));
+        root.setBorder(BorderFactory.createLineBorder(new Color(57,120,245), 2));
+
+        JPanel hdr = new JPanel(new FlowLayout(FlowLayout.LEFT,14,10));
+        hdr.setBackground(new Color(27,34,62));
+        JLabel hIcon = new JLabel("🔐"); hIcon.setFont(new Font("SansSerif",Font.PLAIN,16));
+        JLabel hTitle = new JLabel("Booking OTP"); hTitle.setFont(new Font("Segoe UI",Font.BOLD,13)); hTitle.setForeground(Color.WHITE);
+        hdr.add(hIcon); hdr.add(hTitle);
+
+        JPanel body = new JPanel(); body.setLayout(new BoxLayout(body,BoxLayout.Y_AXIS));
+        body.setBackground(new Color(22,28,52)); body.setBorder(BorderFactory.createEmptyBorder(14,20,14,20));
+
+        JLabel otpLbl = new JLabel(otp, JLabel.CENTER);
+        otpLbl.setFont(new Font("Monospaced",Font.BOLD,46)); otpLbl.setForeground(new Color(99,179,237));
+        otpLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel timerLbl = new JLabel("⏱  Expires in: 60s");
+        timerLbl.setFont(new Font("Segoe UI",Font.BOLD,12)); timerLbl.setForeground(new Color(252,129,74));
+        timerLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel warn = new JLabel("Enter this OTP to confirm booking", JLabel.CENTER);
+        warn.setFont(new Font("Segoe UI",Font.PLAIN,11)); warn.setForeground(new Color(100,115,145));
+        warn.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.setFont(new Font("Segoe UI",Font.BOLD,11)); closeBtn.setForeground(Color.WHITE);
+        closeBtn.setBackground(new Color(57,80,140)); closeBtn.setFocusPainted(false);
+        closeBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        closeBtn.addActionListener(e -> pop.dispose());
+
+        body.add(otpLbl); body.add(Box.createVerticalStrut(6));
+        body.add(timerLbl); body.add(Box.createVerticalStrut(4));
+        body.add(warn); body.add(Box.createVerticalStrut(10)); body.add(closeBtn);
+
+        root.add(hdr, BorderLayout.NORTH); root.add(body, BorderLayout.CENTER);
+        pop.setContentPane(root); pop.setVisible(true);
+
+        int[] rem = {60};
+        java.util.Timer t = new java.util.Timer(true);
+        t.scheduleAtFixedRate(new java.util.TimerTask(){
+            public void run(){
+                rem[0]--;
+                SwingUtilities.invokeLater(() -> {
+                    if (rem[0] <= 0) {
+                        timerLbl.setText("⏱  Expired"); timerLbl.setForeground(new Color(229,57,53)); t.cancel();
+                        new java.util.Timer(true).schedule(new java.util.TimerTask(){public void run(){SwingUtilities.invokeLater(pop::dispose);}},1500);
+                    } else {
+                        timerLbl.setForeground(rem[0]<=15?new Color(229,57,53):new Color(252,129,74));
+                        timerLbl.setText("⏱  Expires in: "+rem[0]+"s");
+                    }
+                });
+            }
+        },1000,1000);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  POPUP: Exit OTP (shown to user, told to watchman)
+    // ═══════════════════════════════════════════════════════════════════
+    void showExitOtpPopup(JDialog parent, String slotId, String otp) {
+        JDialog pop = new JDialog(parent, "Exit OTP for Slot " + slotId, true);
+        pop.setSize(340, 310); pop.setLocationRelativeTo(parent);
+        pop.setResizable(false); pop.setUndecorated(true);
+
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(new Color(15,30,20));
+        root.setBorder(BorderFactory.createLineBorder(new Color(22,163,74), 2));
+
+        JPanel hdr = new JPanel(new FlowLayout(FlowLayout.LEFT,14,10));
+        hdr.setBackground(new Color(20,40,26));
+        JLabel hIcon = new JLabel("🚗"); hIcon.setFont(new Font("SansSerif",Font.PLAIN,16));
+        JLabel hTitle = new JLabel("Exit OTP – Slot "+slotId); hTitle.setFont(new Font("Segoe UI",Font.BOLD,13)); hTitle.setForeground(Color.WHITE);
+        hdr.add(hIcon); hdr.add(hTitle);
+
+        JPanel body = new JPanel(); body.setLayout(new BoxLayout(body,BoxLayout.Y_AXIS));
+        body.setBackground(new Color(15,30,20)); body.setBorder(BorderFactory.createEmptyBorder(14,20,14,20));
+
+        JLabel otpLbl = new JLabel(otp, JLabel.CENTER);
+        otpLbl.setFont(new Font("Monospaced",Font.BOLD,46)); otpLbl.setForeground(new Color(74,222,128));
+        otpLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel inst = new JLabel("Tell this OTP to the Watchman", JLabel.CENTER);
+        inst.setFont(new Font("Segoe UI",Font.BOLD,12)); inst.setForeground(new Color(134,239,172));
+        inst.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel warn = new JLabel("Watchman enters it in Admin Panel to release slot", JLabel.CENTER);
+        warn.setFont(new Font("Segoe UI",Font.PLAIN,10)); warn.setForeground(new Color(75,120,90));
+        warn.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JButton closeBtn = new JButton("Done");
+        closeBtn.setFont(new Font("Segoe UI",Font.BOLD,11)); closeBtn.setForeground(Color.WHITE);
+        closeBtn.setBackground(new Color(22,100,50)); closeBtn.setFocusPainted(false);
+        closeBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        closeBtn.addActionListener(e -> pop.dispose());
+
+        body.add(otpLbl); body.add(Box.createVerticalStrut(6));
+        body.add(inst); body.add(Box.createVerticalStrut(4));
+        body.add(warn); body.add(Box.createVerticalStrut(10)); body.add(closeBtn);
+
+        root.add(hdr, BorderLayout.NORTH); root.add(body, BorderLayout.CENTER);
+        pop.setContentPane(root); pop.setVisible(true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Extend Time dialog
+    // ═══════════════════════════════════════════════════════════════════
+    void showExtendDialog(JDialog parent, SlotBooking booking) {
+        String newExit = JOptionPane.showInputDialog(parent,
+            "Current exit: " + fmt12(booking.exitMins) + "\nEnter new exit time (hh:mm AM/PM):",
+            "Extend Time", JOptionPane.PLAIN_MESSAGE);
+        if (newExit == null || newExit.isBlank()) return;
+        int newMins = parse12(newExit.trim());
+        if (newMins < 0) { JOptionPane.showMessageDialog(parent,"Invalid time format.","Error",JOptionPane.ERROR_MESSAGE); return; }
+        booking.exitMins = newMins;
+        // Update in DB
+        try {
+            String sql = "UPDATE bookings SET exit_time=? WHERE slot_id=? AND mobile=? AND status='confirmed'";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, fmt12(newMins));
+                ps.setString(2, booking.slotId);
+                ps.setString(3, loggedInMobile);
+                ps.executeUpdate();
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        refreshSlotGrid();
+        JOptionPane.showMessageDialog(parent,"✅ Exit time extended to " + fmt12(newMins),"Extended", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Cancel booking in DB
+    // ═══════════════════════════════════════════════════════════════════
+    void cancelBookingInDB(String slotId) {
+        if (dbConnection == null) return;
+        try {
+            String sql = "UPDATE bookings SET status='cancelled' WHERE slot_id=? AND mobile=? AND status='confirmed'";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, slotId); ps.setString(2, loggedInMobile);
+                ps.executeUpdate();
+            }
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
     // ── Demo bookings ─────────────────────────────────────────────────────

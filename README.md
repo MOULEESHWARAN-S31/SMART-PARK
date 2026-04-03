@@ -1,78 +1,81 @@
-# ParkSmart - Hotel Parking Management System
+# 🅿️ ParkSmart - Hotel Parking Excellence
 
-A premium Java Swing desktop application for managing hotel parking with MySQL database integration (XAMPP), OTP-based login, calendar-based slot booking, and receipt generation.
+A luxury Java Swing management system for high-end hotel parking zones. ParkSmart offers a **privacy-first logic**, **interactive dashboard UI**, and **secure real-time synchronization** between guests and security personnel.
+
+---
+
+## 🏗️ Core Concept
+
+The system is designed for quick, secure entry and exit without relying on personal data. By focusing solely on the **10-digit Mobile Number**, the system maintains a professional, privacy-compliant workflow.
+
+### 🛡️ Privacy Guarantee
+*   **Zero Name Retention**: The "Name" field has been fully removed from the Database (`parksmart_db`), the User UI, the Admin UI, and all exported CSV reports.
+*   **Verification-Based**: Access is granted only via secure 4-digit OTPs that appear in **on-screen pop-up windows** (no more terminal checking).
+
+---
 
 ## 🚀 Key Features
 
-*   **Pill-Shaped UI Design**: Modern, consistent rounded aesthetic with smooth gradients.
-*   **MySQL Integration**: Persistent storage using XAMPP/MariaDB.
-*   **Real-Time Dashboard**: Interactive calendar and slot grid for parking management.
-*   **Secure OTP Workflow**: Random 4-digit OTP generation (printed to terminal) for login and booking verification.
-*   **Automatic Receipts**: Dynamically generated receipts with user-specific details.
-*   **Read-Only Mobile Field**: Prevents editing the logged-in user's mobile number during booking.
+*   **✨ Premium UI**: Pill-shaped rounded designs across all panels, slots, and buttons for a modern aesthetic.
+*   **📅 Interactive Calendar**: 
+    *   **Users**: Select dates to view future/past availability.
+    *   **Admins**: A custom dashboard calendar showing **Red Point (●)** markers on dates that have active bookings.
+*   **🔐 Admin Security**: Watchman login is strictly controlled.
+    *   **Authorized Access Only**: Only mobile numbers pre-authorized in the `admins` table can login.
+    *   **Master Number**: `9876543210` remains the hardcoded fallback for super-admin access.
+*   **🔄 Instant Refresh**: Real-time "Refresh" buttons near the logout area on both panels. This forces an immediate sync with the MySQL database, ensuring the Watchman and the Guest see the same slot status (Free/Occupied) instantly.
+*   **📲 Dynamic OTP Pop-ups**: 
+    *   Logins and Exit Verifications trigger a **secure pop-up dialog** containing the unique 4-digit code.
+*   **📊 CSV Reports**: Watchmen can generate date-range specific reports (Slot, Mobile, Vehicle, Entry, Exit, Status) for audit purposes.
 
-## 📂 Project Structure
+---
+
+## 📁 Source Structure
 
 ```text
-ParkSmartProject/
-├── src/
-│   └── com/parksmart/
-│       ├── ParkSmartApp.java    # Main Entry & DB Initialization
-│       └── ParkSmartUserPage.java # User Dashboard & UI Logic
+SMART-PARK/
+├── Admin/
+│   └── ParkSmartAdmin.java       # Watchman Interface (Verification & Reports)
+├── src/com/parksmart/
+│   ├── ParkSmartApp.java         # Main Entry & User Login Pop-up logic
+│   ├── ParkSmartUserPage.java    # Client Dashboard (Pill-shaped Slot Grid)
+│   ├── ExitOtpStore.java         # Database-backed OTP synchronization
+│   └── ParkSmartAdminLauncher.java # Admin panel invocation bridge
 ├── lib/
-│   └── mysql-connector-j-9.6.0.jar # MySQL Connection Driver
-├── bin/                         # Compiled Class Files
-├── run.bat                      # Windows Runner Script
-└── README.md                    # Documentation
+│   └── mysql-connector-j-9.6.0.jar # JDBC Connection Driver
+├── run.bat                       # Build, Compile, and Launch script
+└── README.md                     # This documentation
 ```
 
-## 🛠️ Prerequisites
+---
 
-1.  **Java Development Kit (JDK) 11+**
-2.  **XAMPP Control Panel** (with Apache and MySQL services running)
-3.  **MySQL Database**:
-    *   Create a database named `parksmart_db` in `phpMyAdmin` (`http://localhost/phpmyadmin`).
-    *   The application will automatically create the tables (`users`, `bookings`) on first run.
+## ⚙️ How it Works (Logic Flow)
 
-## ⚡ Setup & Execution
+### 1. Booking a Slot (User)
+*   Guest logs in with Mobile Number -> OTP Pop-up.
+*   Guest selects a date and an available slot.
+*   Guest enters vehicle number -> Booking confirms live in MySQL.
 
-### 1. Database Setup
-Ensure XAMPP is running and you have created the `parksmart_db` database.
+### 2. Requesting Exit (User → Admin Sync)
+*   Guest clicks their occupied slot.
+*   System generates an **Exit OTP** and shows it in a pop-up.
+*   This OTP is simultaneously stored in the `exit_otps` table in the database.
 
-### 2. Run the Application (Windows)
-Simply double-click the `run.bat` file in the root directory.
+### 3. Verification & Release (Admin)
+*   The Guest provides the OTP to the Watchman.
+*   The Watchman clicks the same slot on the **Admin Panel**.
+*   The Watchman enters the Guest's OTP.
+*   The system verifies it against the `exit_otps` table.
+*   On success, the slot becomes **Free** instantly for all other users.
 
-*Alternatively, use the terminal:*
-```bash
-./run.bat
-```
+---
 
-### 3. Manual Compilation (if needed)
-```bash
-javac -cp "lib/mysql-connector-j-9.6.0.jar" -d bin src/com/parksmart/*.java
-```
+## 🛠️ Installation & Execution
 
-## 📖 Usage Guide
+1.  **Preparation**: Start Apache & MySQL in **XAMPP**.
+2.  **Database**: Create a database named `parksmart_db` in `phpMyAdmin`.
+    - *Note: The app will build all necessary tables automatically on the first run.*
+3.  **Run**: Execute the **`run.bat`** file from the root directory.
 
-1.  **Login**:
-    *   Enter your 10-digit mobile number.
-    *   Check your terminal/console for the generated **Login OTP**.
-    *   Verify and enter the dashboard.
-2.  **Booking**:
-    *   Select a date on the left calendar.
-    *   Click an available (Blue) slot.
-    *   Enter your name and vehicle details.
-    *   Check terminal for **Booking OTP** and verify.
-3.  **Success**:
-    *   View your modern, pill-shaped receipt.
-    *   Data is saved live to your XAMPP MySQL database.
-
-## ⚙️ Configuration
-The default database settings are:
-*   **Host**: `localhost:3306`
-*   **DB Name**: `parksmart_db`
-*   **User**: `root`
-*   **Password**: *[None]*
-
-## 📜 License
-Educational project for ParkSmart - Hotel Parking Management.
+---
+*ParkSmart: Ensuring Every Guest Parks with Peace of Mind.*

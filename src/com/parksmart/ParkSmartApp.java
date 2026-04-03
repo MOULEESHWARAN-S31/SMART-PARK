@@ -547,25 +547,15 @@ public class ParkSmartApp extends JFrame {
     private JButton navButton(String label){ JButton b=new JButton(label); b.setFocusPainted(false); b.setBackground(Color.WHITE); b.setBorder(new LineBorder(BORDER)); return b; }
 
     private void addBookingToDB(LocalDate date, String slotId, String entry, String exit, String name, String vehicle) throws SQLException {
-        String sql = "INSERT IGNORE INTO bookings (mobile, name, slot_id, booking_date, entry_time, exit_time, vehicle, status, amount) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', 50.0)";
+        String sql = "INSERT IGNORE INTO bookings (mobile, slot_id, booking_date, entry_time, exit_time, vehicle, status, amount) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 50.0)";
         try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
             stmt.setString(1, loggedInMobile != null ? loggedInMobile : "9876543210");
-            stmt.setString(2, name != null ? name.trim() : "");
-            stmt.setString(3, slotId);
-            stmt.setString(4, date.toString());
-            stmt.setString(5, entry);
-            stmt.setString(6, exit);
-            stmt.setString(7, vehicle);
+            stmt.setString(2, slotId);
+            stmt.setString(3, date.toString());
+            stmt.setString(4, entry);
+            stmt.setString(5, exit);
+            stmt.setString(6, vehicle);
             stmt.executeUpdate();
-            
-            // Try to update user name if provided
-            if (name != null && !name.trim().isEmpty()) {
-                try (PreparedStatement stmt2 = dbConnection.prepareStatement("UPDATE users SET name = ? WHERE mobile = ?")) {
-                    stmt2.setString(1, name.trim());
-                    stmt2.setString(2, loggedInMobile != null ? loggedInMobile : "9876543210");
-                    stmt2.executeUpdate();
-                } catch (SQLException ex) { ex.printStackTrace(); }
-            }
         }
     }
 
@@ -578,18 +568,129 @@ public class ParkSmartApp extends JFrame {
         if (mobile.length() < 10) {
             loginStatus.setText("Enter valid 10-digit mobile"); loginStatus.setForeground(OCC_COLOR); return;
         }
+
+        // ── Pre-check Watchman logic before generating OTP ──
+        if ("watchman".equals(loginMode)) {
+            boolean isAdmin = "9876543210".equals(mobile); // Super admin fallback
+            if (!isAdmin) {
+                try {
+                    try(java.sql.Statement st = dbConnection.createStatement()) { 
+                        st.execute("CREATE TABLE IF NOT EXISTS admins (phone VARCHAR(15) PRIMARY KEY, name VARCHAR(50), empid VARCHAR(20), reg_date VARCHAR(20))"); 
+                    }
+                    String sql = "SELECT * FROM admins WHERE phone = ?";
+                    try (java.sql.PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
+                        stmt.setString(1, mobile);
+                        java.sql.ResultSet rs = stmt.executeQuery();
+                        if (rs.next()) isAdmin = true;
+                    }
+                } catch (java.sql.SQLException e) { isAdmin = false; }
+            }
+            if (!isAdmin) {
+                loginStatus.setText("Unregistered Watchman"); loginStatus.setForeground(OCC_COLOR); return;
+            }
+        }
+
         String otp = String.format("%04d", new Random().nextInt(10000));
         otpStore.put(mobile, new OtpEntry(otp, Instant.now().plusSeconds(180)));
 
-        // Print OTP to terminal
-        System.out.println("=== PARKSMART OTP ===");
-        System.out.println("Mobile: " + mobile);
-        System.out.println("OTP: " + otp);
-        System.out.println("Expires in 3 minutes");
-        System.out.println("====================");
-
-        otpStatus.setText("OTP sent to " + mobile + " (check terminal)"); otpStatus.setForeground(FREE_COLOR);
+        otpStatus.setText("OTP generated for +91-" + mobile); otpStatus.setForeground(FREE_COLOR);
         loginStatus.setText("Enter OTP and verify"); loginStatus.setForeground(TEXT_COLOR());
+
+        // Show OTP in a styled popup with 60-second countdown
+        showOtpPopup(mobile, otp);
+    }
+
+    private void showOtpPopup(String mobile, String otp) {
+        JDialog popup = new JDialog(this, "Your OTP", false);
+        popup.setSize(340, 300);
+        popup.setLocationRelativeTo(this);
+        popup.setResizable(false);
+        popup.setUndecorated(true);
+
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(new Color(22, 28, 52));
+        root.setBorder(BorderFactory.createLineBorder(new Color(57, 120, 245), 2));
+
+        // Header
+        JPanel hdr = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 12));
+        hdr.setBackground(new Color(27, 34, 62));
+        JLabel hIcon = new JLabel("🔐"); hIcon.setFont(new Font("SansSerif", Font.PLAIN, 18));
+        JLabel hTitle = new JLabel("Your Login OTP");
+        hTitle.setFont(new Font("Segoe UI", Font.BOLD, 14)); hTitle.setForeground(Color.WHITE);
+        hdr.add(hIcon); hdr.add(hTitle);
+
+        // OTP digits
+        JPanel body = new JPanel();
+        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+        body.setBackground(new Color(22, 28, 52));
+        body.setBorder(BorderFactory.createEmptyBorder(20, 24, 16, 24));
+
+        JLabel subLbl = new JLabel("Mobile: +91-" + mobile);
+        subLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12)); subLbl.setForeground(new Color(160, 174, 200));
+        subLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel otpLbl = new JLabel(otp);
+        otpLbl.setFont(new Font("Monospaced", Font.BOLD, 52));
+        otpLbl.setForeground(new Color(99, 179, 237));
+        otpLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+        otpLbl.setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
+
+        JLabel timerLbl = new JLabel("⏱  Expires in: 60s");
+        timerLbl.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        timerLbl.setForeground(new Color(252, 129, 74));
+        timerLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel warn = new JLabel("Do not share this OTP with anyone.");
+        warn.setFont(new Font("Segoe UI", Font.PLAIN, 11)); warn.setForeground(new Color(100, 115, 145));
+        warn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        warn.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        closeBtn.setForeground(Color.WHITE); closeBtn.setBackground(new Color(57, 80, 140));
+        closeBtn.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(80, 110, 180), 1, true),
+            BorderFactory.createEmptyBorder(6, 22, 6, 22)));
+        closeBtn.setFocusPainted(false);
+        closeBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        closeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        closeBtn.addActionListener(e -> popup.dispose());
+
+        body.add(subLbl);
+        body.add(otpLbl);
+        body.add(timerLbl);
+        body.add(warn);
+        body.add(Box.createVerticalStrut(14));
+        body.add(closeBtn);
+
+        root.add(hdr, BorderLayout.NORTH);
+        root.add(body, BorderLayout.CENTER);
+        popup.setContentPane(root);
+        popup.setVisible(true);
+
+        // 60-second countdown timer
+        int[] remaining = {60};
+        java.util.Timer t = new java.util.Timer(true);
+        t.scheduleAtFixedRate(new java.util.TimerTask() {
+            public void run() {
+                remaining[0]--;
+                SwingUtilities.invokeLater(() -> {
+                    if (remaining[0] <= 0) {
+                        timerLbl.setForeground(new Color(229, 57, 53));
+                        timerLbl.setText("⏱  OTP window expired");
+                        t.cancel();
+                        // auto-close after 1.5s
+                        new java.util.Timer(true).schedule(new java.util.TimerTask(){
+                            public void run(){SwingUtilities.invokeLater(popup::dispose);}
+                        }, 1500);
+                    } else {
+                        int secs = remaining[0];
+                        timerLbl.setForeground(secs <= 15 ? new Color(229, 57, 53) : new Color(252, 129, 74));
+                        timerLbl.setText("⏱  Expires in: " + secs + "s");
+                    }
+                });
+            }
+        }, 1000, 1000);
     }
 
     private void verifyOtpAction() {
@@ -601,8 +702,20 @@ public class ParkSmartApp extends JFrame {
         if (!entry.code.equals(entered)) { loginStatus.setText("Wrong OTP"); loginStatus.setForeground(OCC_COLOR); return; }
 
         loggedInMobile = mobile;
+        loginStatus.setText("Login success!"); loginStatus.setForeground(new Color(0, 128, 0));
+        otpStore.remove(mobile);
+
+        // ── Watchman → Admin Panel ──
+        if ("watchman".equals(loginMode)) {
+            SwingUtilities.invokeLater(() -> {
+                new com.parksmart.ParkSmartAdminLauncher(dbConnection);
+                this.dispose();
+            });
+            return;
+        }
+
+        // ── Regular User ──
         try {
-            // Ensure user exists in DB
             String sql = "INSERT IGNORE INTO users (mobile) VALUES (?)";
             try (PreparedStatement stmt = dbConnection.prepareStatement(sql)) {
                 stmt.setString(1, mobile);
@@ -612,10 +725,6 @@ public class ParkSmartApp extends JFrame {
             JOptionPane.showMessageDialog(this, "Database error: " + e.getMessage());
             return;
         }
-
-        loginStatus.setText("Login success"); loginStatus.setForeground(new Color(0,128,0));
-
-        // Open the user page and close the login window
         ParkSmartUserPage userPage = new ParkSmartUserPage(mobile, dbConnection);
         userPage.setVisible(true);
         this.dispose();
