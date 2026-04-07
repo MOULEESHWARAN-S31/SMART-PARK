@@ -85,6 +85,7 @@ public class ParkSmartUserPage extends JFrame {
         return d.format(DateTimeFormatter.ofPattern("d MMM yyyy"));
     }
 
+<<<<<<< HEAD
     boolean isSlotTimeAvailable(String slotId, LocalDate date, int entry, int exit) {
         if (entry < 0 || exit <= entry) return false;
         List<SlotBooking> blist = bookingsByDate.getOrDefault(dateKey(date), Collections.emptyList());
@@ -99,6 +100,8 @@ public class ParkSmartUserPage extends JFrame {
         return true;
     }
 
+=======
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
     // ── Constructor ───────────────────────────────────────────────────────
     String loggedInMobile;
     Connection dbConnection;
@@ -481,14 +484,21 @@ public class ParkSmartUserPage extends JFrame {
                         tag = rem >= 60
                             ? String.format("%dh %dm left", rem/60, rem%60)
                             : rem + "m left";
+<<<<<<< HEAD
                     } else if (now >= booking.exitMins) {
                         occupied = true;
                         tag = "OVERDUE";
+=======
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
                     } else if (now < booking.entryMins) {
                         upcoming = true;
                         tag = "from " + fmt12(booking.entryMins);
                     }
+<<<<<<< HEAD
                     // past booking -> handled by overdue branch
+=======
+                    // past booking → slot is free again
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
                 } else {
                     occupied = true;
                     tag = fmt12(booking.entryMins) + "–" + fmt12(booking.exitMins);
@@ -554,7 +564,10 @@ public class ParkSmartUserPage extends JFrame {
 
         // OTP store for this dialog
         final String[] dialogOtp = {null};
+<<<<<<< HEAD
         final JDialog[] otpPopup = {null};
+=======
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
 
         CardLayout cl = new CardLayout();
         JPanel root = new JPanel(cl);
@@ -704,6 +717,7 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Enter a valid 10-digit mobile.","Validation",JOptionPane.WARNING_MESSAGE);
                 return;
             }
+<<<<<<< HEAD
             int entry = parse12(entryF.getText().trim());
             int exit = parse12(exitF.getText().trim());
             if (entry < 0 || exit <= entry) {
@@ -719,6 +733,12 @@ public class ParkSmartUserPage extends JFrame {
             String otp = String.format("%04d", new java.util.Random().nextInt(10000));
             dialogOtp[0] = otp;
             otpPopup[0] = showBookingOtpPopup(dlg, mobileF.getText().trim(), otp);
+=======
+            // Generate OTP and show in POPUP (not terminal)
+            String otp = String.format("%04d", new java.util.Random().nextInt(10000));
+            dialogOtp[0] = otp;
+            showBookingOtpPopup(dlg, mobileF.getText().trim(), otp);
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
             cl.show(root,"step2");
         });
 
@@ -800,11 +820,14 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Invalid OTP. Check terminal for the correct OTP.","OTP Error",JOptionPane.ERROR_MESSAGE);
                 return;
             }
+<<<<<<< HEAD
             // Close OTP popup
             if (otpPopup[0] != null) {
                 otpPopup[0].dispose();
                 otpPopup[0] = null;
             }
+=======
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
             // Save booking locally
             int entry = parse12(entryF.getText().trim());
             int exit  = parse12(exitF.getText().trim());
@@ -963,7 +986,11 @@ public class ParkSmartUserPage extends JFrame {
     // ═══════════════════════════════════════════════════════════════════
     //  POPUP: Booking OTP (dark themed, 60s countdown)
     // ═══════════════════════════════════════════════════════════════════
+<<<<<<< HEAD
     JDialog showBookingOtpPopup(JDialog parent, String mobile, String otp) {
+=======
+    void showBookingOtpPopup(JDialog parent, String mobile, String otp) {
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         JDialog pop = new JDialog(parent, "Your Booking OTP", false);
         pop.setSize(320, 270); pop.setLocationRelativeTo(parent);
         pop.setResizable(false); pop.setUndecorated(true);
@@ -1022,7 +1049,10 @@ public class ParkSmartUserPage extends JFrame {
                 });
             }
         },1000,1000);
+<<<<<<< HEAD
         return pop;
+=======
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1152,11 +1182,16 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     void startSlotRefresh() {
+<<<<<<< HEAD
         javax.swing.Timer t = new javax.swing.Timer(5_000, e -> {
             if (selectedDate.equals(LocalDate.now())) {
                 syncBookingsFromDB();
                 refreshSlotGrid();
             }
+=======
+        javax.swing.Timer t = new javax.swing.Timer(30_000, e -> {
+            if (selectedDate.equals(LocalDate.now())) refreshSlotGrid();
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         });
         t.start();
     }
@@ -1384,7 +1419,11 @@ public class ParkSmartUserPage extends JFrame {
             return;
         }
         bookingsByDate.clear();
+<<<<<<< HEAD
         String sql = "SELECT * FROM bookings WHERE status IN ('confirmed', 'overdue')";
+=======
+        String sql = "SELECT * FROM bookings WHERE status = 'confirmed'";
+>>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         try (Statement stmt = dbConnection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
