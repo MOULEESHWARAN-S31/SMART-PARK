@@ -34,8 +34,9 @@ public class ParkSmartUserPage extends JFrame {
     static class SlotBooking {
         String slotId, dateDisp;
         int entryMins, exitMins;
-        SlotBooking(String id, int e, int x, String d) {
-            slotId=id; entryMins=e; exitMins=x; dateDisp=d;
+        boolean penaltyPaid;
+        SlotBooking(String id, int e, int x, String d, boolean p) {
+            slotId=id; entryMins=e; exitMins=x; dateDisp=d; penaltyPaid=p;
         }
     }
     final Map<String, List<SlotBooking>> bookingsByDate = new HashMap<>();
@@ -85,23 +86,32 @@ public class ParkSmartUserPage extends JFrame {
         return d.format(DateTimeFormatter.ofPattern("d MMM yyyy"));
     }
 
-<<<<<<< HEAD
     boolean isSlotTimeAvailable(String slotId, LocalDate date, int entry, int exit) {
         if (entry < 0 || exit <= entry) return false;
         List<SlotBooking> blist = bookingsByDate.getOrDefault(dateKey(date), Collections.emptyList());
         for (SlotBooking b : blist) {
             if (!b.slotId.equals(slotId)) continue;
-            // Check overlap with 20-minute gap
-            int gap = 20; // 20 minutes
-            if (exit + gap > b.entryMins && entry < b.exitMins + gap) {
+            // 20-minute gap after each booking
+            int gap = 20;
+            // A new booking [entry, exit] overlaps with [b.entry, b.exit] if:
+            // it starts before the existing one ends (+ gap) AND it ends after the existing one starts.
+            if (entry < b.exitMins + gap && exit > b.entryMins) {
                 return false;
             }
         }
         return true;
     }
 
-=======
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
+    // Returns the earliest time the slot becomes free (latest exit + 20-min gap)
+    String getNextAvailableTime(String slotId, LocalDate date) {
+        List<SlotBooking> blist = bookingsByDate.getOrDefault(dateKey(date), Collections.emptyList());
+        int latest = -1;
+        for (SlotBooking b : blist) {
+            if (b.slotId.equals(slotId)) latest = Math.max(latest, b.exitMins + 20);
+        }
+        return latest >= 0 ? fmt12(latest) : null;
+    }
+
     // ── Constructor ───────────────────────────────────────────────────────
     String loggedInMobile;
     Connection dbConnection;
@@ -484,21 +494,17 @@ public class ParkSmartUserPage extends JFrame {
                         tag = rem >= 60
                             ? String.format("%dh %dm left", rem/60, rem%60)
                             : rem + "m left";
-<<<<<<< HEAD
-                    } else if (now >= booking.exitMins) {
+                    } else if (now > booking.exitMins + 20) {  // Overdue only AFTER 20-min grace
                         occupied = true;
                         tag = "OVERDUE";
-=======
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
+                    } else if (now >= booking.exitMins) {       // Grace period (0-20 min after exit)
+                        occupied = true;
+                        tag = "grace";
                     } else if (now < booking.entryMins) {
                         upcoming = true;
                         tag = "from " + fmt12(booking.entryMins);
                     }
-<<<<<<< HEAD
                     // past booking -> handled by overdue branch
-=======
-                    // past booking → slot is free again
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
                 } else {
                     occupied = true;
                     tag = fmt12(booking.entryMins) + "–" + fmt12(booking.exitMins);
@@ -564,10 +570,7 @@ public class ParkSmartUserPage extends JFrame {
 
         // OTP store for this dialog
         final String[] dialogOtp = {null};
-<<<<<<< HEAD
         final JDialog[] otpPopup = {null};
-=======
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
 
         CardLayout cl = new CardLayout();
         JPanel root = new JPanel(cl);
@@ -585,9 +588,22 @@ public class ParkSmartUserPage extends JFrame {
 
         if (isOwnBooking && existingBooking != null) {
             // ── OWN SLOT: Extend / Cancel / Exit Verify ──────────────────
+            boolean isUpcoming = nowMins() < existingBooking.entryMins;
+            boolean isOverdue  = nowMins() > existingBooking.exitMins + 20; // 20-min grace
+            boolean isGrace    = !isUpcoming && !isOverdue && nowMins() >= existingBooking.exitMins;
+
+            String statusText  = isOverdue  ? "\u25cf Overdue"
+                               : isGrace    ? "\u25cf Grace Period"
+                               : isUpcoming ? "\u25cf Upcoming"
+                               :              "\u25cf Active";
+            Color  statusColor = isOverdue  ? OCC_C
+                               : isGrace    ? new Color(245,158,11)
+                               : isUpcoming ? new Color(22,163,74)
+                               :              new Color(26,115,232);
+
             JLabel s0title = sectionHead("Your Booked Slot");
-            JLabel s0sub   = mutedLbl("Manage your active booking for slot " + slotId);
-            JLabel s0badge = badge(slotId + " – Your Booking", FREE_C, FREE_BG);
+            JLabel s0sub   = mutedLbl("Manage your booking for slot " + slotId);
+            JLabel s0badge = badge(slotId + " \u2013 Your Booking", FREE_C, FREE_BG);
 
             RPanel ownPanel = new RPanel(12, new Color(240, 248, 255));
             ownPanel.setLayout(new BoxLayout(ownPanel, BoxLayout.Y_AXIS));
@@ -596,19 +612,42 @@ public class ParkSmartUserPage extends JFrame {
                 BorderFactory.createEmptyBorder(10,12,10,12)
             ));
             ownPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+
             ownPanel.add(occInfoRow("Slot",       slotId));
             ownPanel.add(occInfoRow("Entry Time", fmt12(existingBooking.entryMins)));
             ownPanel.add(occInfoRow("Exit Time",  fmt12(existingBooking.exitMins)));
-            ownPanel.add(occInfoRow("Status",     "● Active"));
+            JPanel stPanel = occInfoRow("Status", statusText);
+            Component[] comps = stPanel.getComponents();
+            if (comps.length > 1 && comps[1] instanceof JLabel) {
+                comps[1].setForeground(statusColor);
+            }
+            ownPanel.add(stPanel);
 
-            JButton extendBtn = bigBtn("⏰  Extend Time",  new Color(245, 158, 11));
-            JButton cancelBtn = bigBtn("✕  Cancel Slot",   new Color(229, 57, 53));
-            JButton exitBtn   = bigBtn("✓  Exit Verify",   new Color(22, 163, 74));
+            JButton extendBtn = bigBtn("\u23F0  Extend Time",  new Color(245, 158, 11));
+            JButton cancelBtn = bigBtn("\u2715  Cancel Slot",  new Color(229, 57, 53));
+            JButton exitBtn   = bigBtn("\u2713  Exit Verify",  new Color(22, 163, 74));
+
+            // Exit Verify only makes sense once the car has arrived
+            exitBtn.setVisible(!isUpcoming);
+
+            // Penalty info label (only shown when overdue)
+            JLabel penaltyWarnLbl = new JLabel(
+                "<html><center><span style='color:#e53935'>\u26A0 You are overdue: \u20B920 penalty deducted on exit.</span></center></html>"
+            );
+            penaltyWarnLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            penaltyWarnLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+            penaltyWarnLbl.setVisible(isOverdue);
+
+            if (isOverdue) {
+                cancelBtn.setEnabled(false);
+                cancelBtn.setToolTipText("Cannot cancel overdue booking");
+            }
 
             extendBtn.addActionListener(ev -> showExtendDialog(dlg, existingBooking));
             cancelBtn.addActionListener(ev -> {
+                if (isOverdue) return;
                 int confirm = JOptionPane.showConfirmDialog(dlg,
-                    "Cancel booking for slot " + slotId + "?\nYour ₹20 deposit will be refunded.",
+                    "Cancel booking for slot " + slotId + "?\nYour \u20B920 deposit will be refunded.",
                     "Confirm Cancel", JOptionPane.YES_NO_OPTION);
                 if (confirm == JOptionPane.YES_OPTION) {
                     cancelBookingInDB(slotId);
@@ -617,11 +656,12 @@ public class ParkSmartUserPage extends JFrame {
                     if (bl != null) bl.removeIf(b -> b.slotId.equals(slotId));
                     refreshSlotGrid(); refreshCalendar(); dlg.dispose();
                     JOptionPane.showMessageDialog(null,
-                        "✅ Slot " + slotId + " cancelled.\n₹20 deposit refunded.",
+                        "\u2705 Slot " + slotId + " cancelled.\n\u20B920 deposit refunded.",
                         "Cancelled", JOptionPane.INFORMATION_MESSAGE);
                 }
             });
             exitBtn.addActionListener(ev -> {
+                // Generate exit OTP — penalty (if overdue) is auto-recorded by watchman during verify
                 String exitOtp = String.format("%04d", new java.util.Random().nextInt(10000));
                 ExitOtpStore.put(dbConnection, slotId, exitOtp);
                 showExitOtpPopup(dlg, slotId, exitOtp);
@@ -632,11 +672,12 @@ public class ParkSmartUserPage extends JFrame {
             step0.add(ownPanel); step0.add(Box.createRigidArea(new Dimension(0,14)));
             step0.add(extendBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
             step0.add(cancelBtn); step0.add(Box.createRigidArea(new Dimension(0,6)));
+            step0.add(penaltyWarnLbl); step0.add(Box.createRigidArea(new Dimension(0,4)));
             step0.add(exitBtn);
         } else {
             // ── OTHER'S SLOT: show occupied info ─────────────────────────
             JLabel s0title = sectionHead("Slot Currently Occupied");
-            JLabel s0sub   = mutedLbl("Current booking details for this slot");
+            JLabel s0sub   = mutedLbl("User A has booked this slot for the following time:");
             JLabel s0badge = badge(slotId + " – Occupied", OCC_C, OCC_BG);
 
             RPanel occPanel = new RPanel(12, new Color(255,245,245));
@@ -646,21 +687,25 @@ public class ParkSmartUserPage extends JFrame {
                 BorderFactory.createEmptyBorder(10,12,10,12)
             ));
             occPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
-            String occExit = existingBooking!=null ? fmt12(existingBooking.exitMins) : "—";
+            String entryTimeStr = existingBooking != null ? fmt12(existingBooking.entryMins) : "—";
+            String exitTimeStr = existingBooking != null ? fmt12(existingBooking.exitMins) : "—";
+            int gap = 20;
+            String nextAvailStr = existingBooking != null ? fmt12(existingBooking.exitMins + gap) : "—";
+
             occPanel.add(occInfoRow("Date",       existingBooking!=null ? existingBooking.dateDisp : fmtDate(selectedDate)));
-            occPanel.add(occInfoRow("Entry Time", existingBooking!=null ? fmt12(existingBooking.entryMins) : "—"));
-            occPanel.add(occInfoRow("Exit Time",  occExit));
-            occPanel.add(occInfoRow("Status",     "● Occupied"));
+            occPanel.add(occInfoRow("Entry Time", entryTimeStr));
+            occPanel.add(occInfoRow("Exit Time",  exitTimeStr));
+            occPanel.add(occInfoRow("Status",     "● Occupied (User A)"));
 
             JPanel freeBanner = new RPanel(10, FREE_BG);
             freeBanner.setLayout(new FlowLayout(FlowLayout.LEFT, 8, 6));
             freeBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-            JLabel freeFromLbl = new JLabel("🕐  Slot free from " + occExit);
+            JLabel freeFromLbl = new JLabel("🕐  Next available after " + nextAvailStr + " (incl. 20m gap)");
             freeFromLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
             freeFromLbl.setForeground(FREE_C);
             freeBanner.add(freeFromLbl);
 
-            JButton bookAfterBtn = bigBtn("Book After " + occExit + " →", FREE_C);
+            JButton bookAfterBtn = bigBtn("Enter Booking Details →", FREE_C);
             JButton cancelBtn0   = outlineBtn("Cancel – Choose Another Slot");
             bookAfterBtn.addActionListener(e -> cl.show(root, "step1"));
             cancelBtn0.addActionListener(e -> dlg.dispose());
@@ -717,7 +762,6 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Enter a valid 10-digit mobile.","Validation",JOptionPane.WARNING_MESSAGE);
                 return;
             }
-<<<<<<< HEAD
             int entry = parse12(entryF.getText().trim());
             int exit = parse12(exitF.getText().trim());
             if (entry < 0 || exit <= entry) {
@@ -726,19 +770,16 @@ public class ParkSmartUserPage extends JFrame {
             }
             // Check availability with 20-minute gap
             if (!isSlotTimeAvailable(slotId, selectedDate, entry, exit)) {
-                JOptionPane.showMessageDialog(dlg,"Slot not available for the selected time.","Availability",JOptionPane.ERROR_MESSAGE);
+                String nextAvail = getNextAvailableTime(slotId, selectedDate);
+                String msg = "Slot not available for the selected time.";
+                if (nextAvail != null) msg += "\n\n\uD83D\uDD50 Next available from: " + nextAvail;
+                JOptionPane.showMessageDialog(dlg, msg, "Availability", JOptionPane.ERROR_MESSAGE);
                 return;
             }
             // Generate OTP and show in POPUP (not terminal)
             String otp = String.format("%04d", new java.util.Random().nextInt(10000));
             dialogOtp[0] = otp;
             otpPopup[0] = showBookingOtpPopup(dlg, mobileF.getText().trim(), otp);
-=======
-            // Generate OTP and show in POPUP (not terminal)
-            String otp = String.format("%04d", new java.util.Random().nextInt(10000));
-            dialogOtp[0] = otp;
-            showBookingOtpPopup(dlg, mobileF.getText().trim(), otp);
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
             cl.show(root,"step2");
         });
 
@@ -820,20 +861,17 @@ public class ParkSmartUserPage extends JFrame {
                 JOptionPane.showMessageDialog(dlg,"Invalid OTP. Check terminal for the correct OTP.","OTP Error",JOptionPane.ERROR_MESSAGE);
                 return;
             }
-<<<<<<< HEAD
             // Close OTP popup
             if (otpPopup[0] != null) {
                 otpPopup[0].dispose();
                 otpPopup[0] = null;
             }
-=======
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
             // Save booking locally
             int entry = parse12(entryF.getText().trim());
             int exit  = parse12(exitF.getText().trim());
             String key = dateKey(selectedDate);
             bookingsByDate.computeIfAbsent(key, k -> new ArrayList<>())
-                .add(new SlotBooking(slotId, entry < 0 ? 0 : entry, exit < 0 ? 60 : exit, fmtDate(selectedDate)));
+                .add(new SlotBooking(slotId, entry < 0 ? 0 : entry, exit < 0 ? 60 : exit, fmtDate(selectedDate), false));
             
             // Save booking to Database
             if (dbConnection != null) {
@@ -961,7 +999,9 @@ public class ParkSmartUserPage extends JFrame {
         root.add(step2,"step2");
         root.add(step3,"step3");
 
-        cl.show(root, occupied ? "step0" : "step1");
+        // Show management view if this is the user's own active or upcoming booking
+        boolean showManagementView = occupied || (isOwnBooking && existingBooking != null);
+        cl.show(root, showManagementView ? "step0" : "step1");
 
         dlg.setVisible(true);
     }
@@ -972,7 +1012,7 @@ public class ParkSmartUserPage extends JFrame {
     boolean isUserOwnBooking(String slotId) {
         if (loggedInMobile == null || dbConnection == null) return false;
         try {
-            String sql = "SELECT id FROM bookings WHERE slot_id=? AND mobile=? AND status='confirmed' AND booking_date=?";
+            String sql = "SELECT id FROM bookings WHERE slot_id=? AND mobile=? AND status IN ('confirmed','overdue') AND booking_date=?";
             try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
                 ps.setString(1, slotId);
                 ps.setString(2, loggedInMobile);
@@ -986,11 +1026,7 @@ public class ParkSmartUserPage extends JFrame {
     // ═══════════════════════════════════════════════════════════════════
     //  POPUP: Booking OTP (dark themed, 60s countdown)
     // ═══════════════════════════════════════════════════════════════════
-<<<<<<< HEAD
     JDialog showBookingOtpPopup(JDialog parent, String mobile, String otp) {
-=======
-    void showBookingOtpPopup(JDialog parent, String mobile, String otp) {
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         JDialog pop = new JDialog(parent, "Your Booking OTP", false);
         pop.setSize(320, 270); pop.setLocationRelativeTo(parent);
         pop.setResizable(false); pop.setUndecorated(true);
@@ -1049,10 +1085,7 @@ public class ParkSmartUserPage extends JFrame {
                 });
             }
         },1000,1000);
-<<<<<<< HEAD
         return pop;
-=======
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1148,14 +1181,14 @@ public class ParkSmartUserPage extends JFrame {
         String todayDisp = fmtDate(LocalDate.now());
 
         List<SlotBooking> todayList = new ArrayList<>();
-        todayList.add(new SlotBooking("A1",  now-40, now+50,  todayDisp));
-        todayList.add(new SlotBooking("A3",  now-20, now+70,  todayDisp));
-        todayList.add(new SlotBooking("A5",  now-60, now+30,  todayDisp));
-        todayList.add(new SlotBooking("A9",  now-10, now+80,  todayDisp));
-        todayList.add(new SlotBooking("A12", now-30, now+20,  todayDisp));
-        todayList.add(new SlotBooking("A15", now-15, now+90,  todayDisp));
-        todayList.add(new SlotBooking("A7",  now+90, now+150, todayDisp));
-        todayList.add(new SlotBooking("A11", now+60, now+120, todayDisp));
+        todayList.add(new SlotBooking("A1",  now-40, now+50,  todayDisp, false));
+        todayList.add(new SlotBooking("A3",  now-20, now+70,  todayDisp, false));
+        todayList.add(new SlotBooking("A5",  now-60, now+30,  todayDisp, false));
+        todayList.add(new SlotBooking("A9",  now-10, now+80,  todayDisp, false));
+        todayList.add(new SlotBooking("A12", now-30, now+20,  todayDisp, false));
+        todayList.add(new SlotBooking("A15", now-15, now+90,  todayDisp, false));
+        todayList.add(new SlotBooking("A7",  now+90, now+150, todayDisp, false));
+        todayList.add(new SlotBooking("A11", now+60, now+120, todayDisp, false));
         bookingsByDate.put(todayKey, todayList);
 
         String[][] futureSets = {
@@ -1171,7 +1204,7 @@ public class ParkSmartUserPage extends JFrame {
             String key = dateKey(d), disp = fmtDate(d);
             List<SlotBooking> list = new ArrayList<>();
             for (String id : futureSets[offset-1])
-                list.add(new SlotBooking(id, 600, 960, disp)); // 10:00–16:00
+                list.add(new SlotBooking(id, 600, 960, disp, false)); // 10:00–16:00
             bookingsByDate.put(key, list);
         }
     }
@@ -1182,18 +1215,46 @@ public class ParkSmartUserPage extends JFrame {
     }
 
     void startSlotRefresh() {
-<<<<<<< HEAD
         javax.swing.Timer t = new javax.swing.Timer(5_000, e -> {
             if (selectedDate.equals(LocalDate.now())) {
                 syncBookingsFromDB();
                 refreshSlotGrid();
+                checkMyOverdueStatus();
             }
-=======
-        javax.swing.Timer t = new javax.swing.Timer(30_000, e -> {
-            if (selectedDate.equals(LocalDate.now())) refreshSlotGrid();
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         });
         t.start();
+    }
+
+    private boolean overdueAlertShown = false;
+    void checkMyOverdueStatus() {
+        // Query the DB directly for THIS user's overdue bookings only.
+        // This ensures the alert is never shown to the wrong user.
+        if (loggedInMobile == null || dbConnection == null || overdueAlertShown) return;
+        try {
+            String sql = "SELECT slot_id, entry_time, exit_time FROM bookings WHERE mobile=? AND booking_date=? AND status='overdue'";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, loggedInMobile);
+                ps.setString(2, LocalDate.now().toString());
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    String slotId   = rs.getString("slot_id");
+                    int entryMins   = parse12(rs.getString("entry_time"));
+                    int exitMins    = parse12(rs.getString("exit_time"));
+                    overdueAlertShown = true;
+                    showOverduePopup(new SlotBooking(slotId, entryMins < 0 ? 0 : entryMins, exitMins < 0 ? 60 : exitMins, fmtDate(LocalDate.now()), false));
+                }
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    void showOverduePopup(SlotBooking b) {
+        String msg = "<html><body style='width: 250px; padding: 10px;'>" +
+                     "<h2 style='color: #e53935;'>⚠️ OVERTIME ALERT</h2>" +
+                     "<p>Your parking time for <b>Slot " + b.slotId + "</b> has expired!</p>" +
+                     "<p><b>Scheduled Exit:</b> " + fmt12(b.exitMins) + "</p>" +
+                     "<p style='color: #6b7c99; font-size: 10px;'>Please exit now. Your ₹20 refund is forfeited due to overtime stay.</p>" +
+                     "</body></html>";
+        JOptionPane.showMessageDialog(this, msg, "Overdue Alert", JOptionPane.WARNING_MESSAGE);
     }
 
     // ── UI component helpers ──────────────────────────────────────────────
@@ -1419,11 +1480,7 @@ public class ParkSmartUserPage extends JFrame {
             return;
         }
         bookingsByDate.clear();
-<<<<<<< HEAD
         String sql = "SELECT * FROM bookings WHERE status IN ('confirmed', 'overdue')";
-=======
-        String sql = "SELECT * FROM bookings WHERE status = 'confirmed'";
->>>>>>> 58f758d579f1fdfe326ac74ee0a4ce7729dac411
         try (Statement stmt = dbConnection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
@@ -1434,10 +1491,11 @@ public class ParkSmartUserPage extends JFrame {
                     String slot = rs.getString("slot_id");
                     int entry = parse12(rs.getString("entry_time"));
                     int exit = parse12(rs.getString("exit_time"));
+                    boolean pPaid = rs.getBoolean("penalty_paid");
                     if (entry < 0) entry = 0;
                     if (exit < 0) exit = 60;
                     bookingsByDate.computeIfAbsent(dateKey(d), k -> new ArrayList<>())
-                        .add(new SlotBooking(slot, entry, exit, fmtDate(d)));
+                        .add(new SlotBooking(slot, entry, exit, fmtDate(d), pPaid));
                 } catch (Exception e) {}
             }
         } catch (SQLException e) {

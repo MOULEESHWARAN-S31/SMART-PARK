@@ -45,11 +45,13 @@ public class ParkSmartAdmin extends JFrame {
     static class Booking {
         String id, slot, mobile, name, vehicle, entry, exit, status;
         int paid, refund; long bookDate;
+        boolean penaltyPaid;
         Booking(String id,String slot,String mobile,String name,String vehicle,
-                String entry,String exit,String status,int paid,int refund,long bookDate){
+                String entry,String exit,String status,int paid,int refund,long bookDate, boolean penaltyPaid){
             this.id=id;this.slot=slot;this.mobile=mobile;this.name=name;
             this.vehicle=vehicle;this.entry=entry;this.exit=exit;this.status=status;
             this.paid=paid;this.refund=refund;this.bookDate=bookDate;
+            this.penaltyPaid=penaltyPaid;
         }
     }
     static class SlotData {
@@ -71,7 +73,7 @@ public class ParkSmartAdmin extends JFrame {
     JPanel     contentArea;
     CardLayout cardLayout;
     JLabel     clockLabel, topbarTitle;
-    JLabel     statFree, statOcc, statOverdue, statRevenue, statBookingsCount;
+    JLabel     statFree, statOcc, statOverdue, statRevenue, statBookingsCount, statPenalty, statRefund;
     JPanel     dashSlotGrid;
     JTable     todayTable;
     DefaultTableModel todayModel;
@@ -112,7 +114,85 @@ public class ParkSmartAdmin extends JFrame {
 
         buildDashSlotGrid(dashSlotGrid);
         buildTodayTable();
+        startOverdueCheckTimer();
         setVisible(true);
+    }
+
+    private Set<String> overdueAlertsShown = new HashSet<>();
+    void startOverdueCheckTimer() {
+        javax.swing.Timer t = new javax.swing.Timer(10000, e -> {
+            updateOverdueBookingsInDB(); // ← Fix Bug 2: keep DB status current
+            loadDataFromDB();
+            buildDashSlotGrid(dashSlotGrid);
+            buildTodayTable();
+            
+            for (SlotData s : slots) {
+                if (s.state.equals("overdue") && s.booking != null && !overdueAlertsShown.contains(s.booking.id)) {
+                    overdueAlertsShown.add(s.booking.id);
+                    showAdminOverdueAlert(s);
+                }
+            }
+        });
+        t.start();
+    }
+
+    void showAdminOverdueAlert(SlotData s) {
+        String msg = "<html><body style='width: 300px; padding: 10px;'>" +
+                     "<h2 style='color: #e53935;'>🚨 OVERTIME ALERT (ADMIN)</h2>" +
+                     "<p><b>Slot ID:</b> " + s.id + "</p>" +
+                     "<p><b>User Name:</b> " + s.booking.name + "</p>" +
+                     "<p><b>Arrival Time:</b> " + s.booking.entry + "</p>" +
+                     "<p><b>Exit Time:</b> " + s.booking.exit + "</p>" +
+                     "<p style='color: #6b7c99; font-size: 10px;'>This user has exceeded their stay. ₹20 refund should be withheld.</p>" +
+                     "</body></html>";
+        JOptionPane.showMessageDialog(this, msg, "Overdue Alert - " + s.id, JOptionPane.ERROR_MESSAGE);
+    }
+
+    // ─── HELPER: current time in minutes since midnight ───────────────────
+    private int nowMinsAdmin() {
+        java.time.LocalTime t = java.time.LocalTime.now();
+        return t.getHour() * 60 + t.getMinute();
+    }
+
+    // ─── HELPER: parse "hh:mm AM/PM" → minutes since midnight ────────────
+    private int parseAdminTime12(String s) {
+        if (s == null || s.isBlank()) return -1;
+        try {
+            String[] parts = s.trim().split(" ");
+            String[] hm    = parts[0].split(":");
+            int h = Integer.parseInt(hm[0].trim());
+            int m = Integer.parseInt(hm[1].trim());
+            String ap = parts[1].trim().toUpperCase();
+            if (ap.equals("PM") && h != 12) h += 12;
+            if (ap.equals("AM") && h == 12) h = 0;
+            return h * 60 + m;
+        } catch (Exception e) { return -1; }
+    }
+
+    // ─── Update 'confirmed' → 'overdue' in DB when exit time has passed ──
+    private void updateOverdueBookingsInDB() {
+        if (dbConnection == null) return;
+        String today = java.time.LocalDate.now().toString();
+        int nowMin = nowMinsAdmin();
+        try {
+            String sql = "SELECT id, exit_time FROM bookings WHERE status='confirmed' AND booking_date=?";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, today);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int id      = rs.getInt("id");
+                        int exitMin = parseAdminTime12(rs.getString("exit_time"));
+                        if (exitMin >= 0 && nowMin > exitMin + 20) {  // Only overdue AFTER 20-min grace
+                            try (PreparedStatement upd = dbConnection.prepareStatement(
+                                    "UPDATE bookings SET status='overdue' WHERE id=?")) {
+                                upd.setInt(1, id);
+                                upd.executeUpdate();
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
     // ═══ DEMO DATA ═══
@@ -135,7 +215,8 @@ public class ParkSmartAdmin extends JFrame {
                     if (sts.equals("confirmed")) sts = "active";
                     double amt = rs.getDouble("amount");
                     String nm = rs.getString("name");
-                    bookings.add(new Booking("B" + bId, slo, mod, nm, veh, ent, ext, sts, (int)amt, 0, d.getTime()));
+                    boolean pPaid = rs.getBoolean("penalty_paid");
+                    bookings.add(new Booking("B" + bId, slo, mod, nm, veh, ent, ext, sts, (int)amt, 0, d.getTime(), pPaid));
                 }
             }
             try {
@@ -156,9 +237,21 @@ public class ParkSmartAdmin extends JFrame {
                     sm.put(b.slot, b); // Overwrites earlier if multiple, so get the latest active
                 }
             }
+            int nowMin = nowMinsAdmin();
             for (String id : ids) {
                 Booking b = sm.get(id);
-                String st = b==null ? "free" : (b.status.equals("overdue")?"overdue":"occupied");
+                String st;
+                if (b == null) {
+                    st = "free";
+                } else if (b.status.equals("overdue")) {
+                    st = "overdue";
+                } else if (selectedDate.equals(java.time.LocalDate.now())) {
+                    // Fix Bug 3: for today, only show OCCUPIED if entry time has passed
+                    int entryMin = parseAdminTime12(b.entry);
+                    st = (entryMin >= 0 && nowMin < entryMin) ? "upcoming" : "occupied";
+                } else {
+                    st = "occupied";
+                }
                 slots.add(new SlotData(id, st, b));
             }
         } catch (Exception ex) {
@@ -169,14 +262,14 @@ public class ParkSmartAdmin extends JFrame {
 
     void initData() {
         long now = System.currentTimeMillis(), day = 86400000L;
-        bookings.add(new Booking("B001","A1","9876543210","Rajesh Kumar","TN 33 AB 1234","09:30 AM","11:30 AM","active",120,0,now));
-        bookings.add(new Booking("B002","A3","9988776655","Priya Singh","TN 22 CD 5678","08:00 AM","10:00 AM","overdue",120,0,now));
-        bookings.add(new Booking("B003","A5","9445566778","Arjun Patel","KA 05 MN 9988","10:00 AM","12:00 PM","active",120,0,now));
-        bookings.add(new Booking("B004","A6","9123456780","Aisha Khan","TN 01 ZZ 4321","07:00 AM","09:00 AM","done",120,20,now-day));
-        bookings.add(new Booking("B005","A9","9000112233","Vikram Sharma","MH 12 XY 7654","09:00 AM","11:00 AM","overdue",120,0,now));
-        bookings.add(new Booking("B006","A12","9776655443","Neha Verma","TN 72 HH 1122","10:30 AM","12:30 PM","active",120,0,now-day));
-        bookings.add(new Booking("B007","A15","9654321098","Amit Desai","TN 11 KK 8877","11:00 AM","01:00 PM","active",120,0,now-2*day));
-        bookings.add(new Booking("B008","A2","9333444555","Deepak Nair","TN 55 PP 3344","07:30 AM","09:30 AM","done",120,20,now-3*day));
+        bookings.add(new Booking("B001","A1","9876543210","Rajesh Kumar","TN 33 AB 1234","09:30 AM","11:30 AM","active",120,0,now, false));
+        bookings.add(new Booking("B002","A3","9988776655","Priya Singh","TN 22 CD 5678","08:00 AM","10:00 AM","overdue",120,0,now, false));
+        bookings.add(new Booking("B003","A5","9445566778","Arjun Patel","KA 05 MN 9988","10:00 AM","12:00 PM","active",120,0,now, false));
+        bookings.add(new Booking("B004","A6","9123456780","Aisha Khan","TN 01 ZZ 4321","07:00 AM","09:00 AM","done",120,20,now-day, false));
+        bookings.add(new Booking("B005","A9","9000112233","Vikram Sharma","MH 12 XY 7654","09:00 AM","11:00 AM","overdue",120,0,now, false));
+        bookings.add(new Booking("B006","A12","9776655443","Neha Verma","TN 72 HH 1122","10:30 AM","12:30 PM","active",120,0,now-day, false));
+        bookings.add(new Booking("B007","A15","9654321098","Amit Desai","TN 11 KK 8877","11:00 AM","01:00 PM","active",120,0,now-2*day, false));
+        bookings.add(new Booking("B008","A2","9333444555","Deepak Nair","TN 55 PP 3344","07:30 AM","09:30 AM","done",120,20,now-3*day, false));
 
         String[] ids = {"A1","A2","A3","A4","A5","A6","A7","A8","A9","A10","A11","A12","A13","A14","A15","A16"};
         Map<String,Booking> sm = new HashMap<>();
@@ -375,15 +468,19 @@ public class ParkSmartAdmin extends JFrame {
         JPanel p = new JPanel(); p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
         p.setBackground(BG); p.setBorder(new EmptyBorder(16,16,16,16));
 
-        // Stat row
-        JPanel stats = new JPanel(new GridLayout(1,4,10,0));
-        stats.setOpaque(false); stats.setMaximumSize(new Dimension(Integer.MAX_VALUE,108));
+        // Stat row — 2 rows × 3 columns
+        JPanel stats = new JPanel(new GridLayout(2,3,10,8));
+        stats.setOpaque(false); stats.setMaximumSize(new Dimension(Integer.MAX_VALUE, 222));
         statFree    = new JLabel("10"); statOcc = new JLabel("5"); statOverdue = new JLabel("2");
-        stats.add(statCard("FREE SLOTS",   statFree,    FREE,     "Available right now", FREE));
-        stats.add(statCard("OCCUPIED",     statOcc,     OCCUPIED, "Currently parked",   OCCUPIED));
-        stats.add(statCard("OVERDUE",      statOverdue, WARN,     "Exceeded exit time", WARN));
-        statRevenue = new JLabel("₹" + todayRevenue());
-        stats.add(statCard("TODAY REVENUE",statRevenue,FREE,"Real-time earnings", FREE));
+        stats.add(statCard("FREE SLOTS",        statFree,    FREE,     "Available right now",      FREE));
+        stats.add(statCard("OCCUPIED",          statOcc,     OCCUPIED, "Currently parked",         OCCUPIED));
+        stats.add(statCard("OVERDUE",           statOverdue, WARN,     "Exceeded exit time",       WARN));
+        statRevenue = new JLabel("\u20b9" + todayRevenue());
+        stats.add(statCard("TODAY REVENUE",     statRevenue, FREE,     "Real-time earnings",       FREE));
+        statPenalty = new JLabel("\u20b90");
+        stats.add(statCard("PENALTY COLLECTED", statPenalty, OCCUPIED, "\u20b920 per overdue exit",OCCUPIED));
+        statRefund  = new JLabel("\u20b90");
+        stats.add(statCard("REFUNDS GIVEN",     statRefund,  GREEN,    "\u20b920 deposit returned", GREEN));
         p.add(stats); p.add(Box.createVerticalStrut(12));
 
         // Slot Map + Alerts row
@@ -542,7 +639,8 @@ public class ParkSmartAdmin extends JFrame {
         grid.removeAll();
         int free=0,occ=0,ov=0;
         for (SlotData s : slots) {
-            if (s.state.equals("free")) free++;
+            // Fix Bug 3: upcoming bookings are physically free slots
+            if (s.state.equals("free") || s.state.equals("upcoming")) free++;
             else if (s.state.equals("occupied")) occ++;
             else ov++;
             grid.add(slotBtn(s));
@@ -550,15 +648,24 @@ public class ParkSmartAdmin extends JFrame {
         if (statFree!=null)    statFree.setText(String.valueOf(free));
         if (statOcc!=null)     statOcc.setText(String.valueOf(occ));
         if (statOverdue!=null) statOverdue.setText(String.valueOf(ov));
+        // Update penalty & refund stats dynamically
+        if (statPenalty!=null) statPenalty.setText("\u20b9" + todayPenalty());
+        if (statRefund!=null)  statRefund.setText("\u20b9"  + todayRefund());
         grid.revalidate(); grid.repaint();
     }
 
     JButton slotBtn(SlotData s) {
         Color bg,fg,brd; String tag;
         switch(s.state){
-            case "occupied": bg=new Color(255,235,235); fg=OCCUPIED; brd=new Color(229,57,53,120);  tag="OCCUPIED";   break;
-            case "overdue":  bg=new Color(255,248,220); fg=WARN;     brd=new Color(245,158,11,150); tag="⚠ OVERDUE";  break;
-            default:         bg=new Color(235,245,255); fg=FREE;     brd=new Color(26,115,232,120); tag="FREE";        break;
+            case "occupied": bg=new Color(255,235,235); fg=OCCUPIED; brd=new Color(229,57,53,120);
+                tag="OCCUPIED"; break;
+            case "overdue":  bg=new Color(255,248,220); fg=WARN;     brd=new Color(245,158,11,150);
+                tag="\u26a0 OVERDUE"; break;
+            case "upcoming": bg=new Color(235,248,240); fg=GREEN;    brd=new Color(22,163,74,100);
+                // Show entry time so admin knows when it starts
+                tag = "from " + (s.booking != null ? s.booking.entry : "?"); break;
+            default:         bg=new Color(235,245,255); fg=FREE;     brd=new Color(26,115,232,120);
+                tag="FREE"; break;
         }
         
         final Color finalBg = bg;
@@ -623,6 +730,9 @@ public class ParkSmartAdmin extends JFrame {
             info.add(infoCell("Exit",     s.booking.exit));
             info.add(infoCell("Mobile",   s.booking.mobile));
             info.add(infoCell("Status",   s.state.toUpperCase()));
+            if (s.state.equalsIgnoreCase("overdue")) {
+                info.add(infoCell("Penalty", s.booking.penaltyPaid ? "₹20 PAID" : "₹20 UNPAID"));
+            }
             body.add(info);
             body.add(Box.createVerticalStrut(16));
         } else {
@@ -680,12 +790,20 @@ public class ParkSmartAdmin extends JFrame {
             if (!com.parksmart.ExitOtpStore.has(dbConnection, s.id) || !com.parksmart.ExitOtpStore.get(dbConnection, s.id).equals(otp.toString())) {
                 resultLbl.setForeground(OCCUPIED); resultLbl.setText("❌ Invalid OTP. Try again."); return;
             }
+            
             // Release the slot
             com.parksmart.ExitOtpStore.remove(dbConnection, s.id);
+            boolean isOverdue = s.state.equals("overdue");
+            String penaltyStatus = isOverdue ? (s.booking.penaltyPaid ? " (Penalty Paid)" : " (Penalty UNPAID!)") : "";
+            String refundMsg = isOverdue ? "₹20 Refund: NO (Overtime Stay" + penaltyStatus + ")" : "₹20 Refund: YES (On Time)";
+            
             if (s.booking != null) {
                 try {
-                    String sql = "UPDATE bookings SET status='done' WHERE id=?";
-                    try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                    // Auto-record penalty when watchman releases an overdue slot
+                    String updateSql = isOverdue
+                        ? "UPDATE bookings SET status='done', penalty_paid=TRUE WHERE id=?"
+                        : "UPDATE bookings SET status='done' WHERE id=?";
+                    try (PreparedStatement ps = dbConnection.prepareStatement(updateSql)) {
                         ps.setInt(1, Integer.parseInt(s.booking.id.replace("B","")));
                         ps.executeUpdate();
                     }
@@ -695,11 +813,11 @@ public class ParkSmartAdmin extends JFrame {
                 buildDashSlotGrid(dashSlotGrid);
                 buildTodayTable();
             }
-            resultLbl.setForeground(GREEN);
-            resultLbl.setText("✓ OTP Verified – Slot " + s.id + " Released!");
+            resultLbl.setForeground(isOverdue ? WARN : GREEN);
+            resultLbl.setText("<html>✓ Verified! Slot " + s.id + " Released.<br>" + refundMsg + "</html>");
             verifyBtn.setEnabled(false);
             Timer t = new Timer();
-            t.schedule(new TimerTask(){public void run(){SwingUtilities.invokeLater(dlg::dispose);}},1800);
+            t.schedule(new TimerTask(){public void run(){SwingUtilities.invokeLater(dlg::dispose);}},2500);
         });
         btnRow.add(verifyBtn); btnRow.add(closeBtn);
         body.add(btnRow);
@@ -820,6 +938,36 @@ public class ParkSmartAdmin extends JFrame {
     int todayRevenue() {
         long cut = System.currentTimeMillis()-86400000L;
         return bookings.stream().filter(b->b.bookDate>cut).mapToInt(b->b.paid).sum();
+    }
+
+    // Penalty collected today: ₹20 × count of penalty_paid=TRUE bookings
+    int todayPenalty() {
+        if (dbConnection == null) return (int) bookings.stream().filter(b -> b.penaltyPaid).count() * 20;
+        String today = java.time.LocalDate.now().toString();
+        try {
+            String sql = "SELECT COUNT(*) FROM bookings WHERE booking_date=? AND penalty_paid=TRUE";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, today);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) return rs.getInt(1) * 20;
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        return 0;
+    }
+
+    // Refunds given today: ₹20 × count of done bookings with no penalty
+    int todayRefund() {
+        if (dbConnection == null) return 0;
+        String today = java.time.LocalDate.now().toString();
+        try {
+            String sql = "SELECT COUNT(*) FROM bookings WHERE booking_date=? AND status='done' AND penalty_paid=FALSE";
+            try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                ps.setString(1, today);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) return rs.getInt(1) * 20;
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        return 0;
     }
 
     void refreshReportTable() {

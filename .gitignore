@@ -1,0 +1,13 @@
+# Java binaries
+bin/
+*.class
+
+# Project files
+.classpath
+.project
+.settings/
+
+# Database / OS
+/db/
+Thumbs.db
+Desktop.ini

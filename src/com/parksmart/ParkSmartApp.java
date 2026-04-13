@@ -95,14 +95,14 @@ public class ParkSmartApp extends JFrame {
         }
 
         // First, connect without specifying database to create it if needed
-        Connection tempConn = DriverManager.getConnection("jdbc:mysql://localhost:3307", "root", "");
+        Connection tempConn = DriverManager.getConnection("jdbc:mysql://localhost:3306", "root", "");
         try (Statement stmt = tempConn.createStatement()) {
             stmt.execute("CREATE DATABASE IF NOT EXISTS parksmart_db");
         }
         tempConn.close();
 
         // Now connect to the database
-        dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3307/parksmart_db", "root", "");
+        dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/parksmart_db", "root", "");
         createTables();
     }
 
@@ -130,10 +130,15 @@ public class ParkSmartApp extends JFrame {
                     vehicle VARCHAR(30),
                     status VARCHAR(20) DEFAULT 'confirmed',
                     amount REAL DEFAULT 120.0,
+                    penalty_paid BOOLEAN DEFAULT FALSE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (mobile) REFERENCES users(mobile)
                 )
             """);
+
+            try {
+                stmt.execute("ALTER TABLE bookings ADD COLUMN penalty_paid BOOLEAN DEFAULT FALSE");
+            } catch (SQLException ignored) {}
 
             // Insert demo user if not exists
             stmt.execute("""
@@ -154,47 +159,62 @@ public class ParkSmartApp extends JFrame {
         String today = now.toLocalDate().toString();
         try (Statement stmt = dbConnection.createStatement()) {
             // Find bookings that are confirmed and exit time has passed
-            String sql = "SELECT id, exit_time, booking_date, slot_id FROM bookings WHERE status = 'confirmed'";
+            String sql = "SELECT id, exit_time, booking_date, slot_id, mobile, name FROM bookings WHERE status = 'confirmed'";
             try (ResultSet rs = stmt.executeQuery(sql)) {
                 while (rs.next()) {
                     String bookingDate = rs.getString("booking_date");
                     String exitTime = rs.getString("exit_time");
                     String slotId = rs.getString("slot_id");
                     int id = rs.getInt("id");
+                    
                     if (bookingDate.equals(today)) {
-                        LocalTime exit = LocalTime.parse(exitTime, TIME_FMT);
-                        LocalDateTime exitDateTime = LocalDateTime.of(now.toLocalDate(), exit);
-                        if (now.isAfter(exitDateTime)) {
-                            // Update to overdue
-                            try (PreparedStatement ps = dbConnection.prepareStatement("UPDATE bookings SET status = 'overdue' WHERE id = ?")) {
-                                ps.setInt(1, id);
-                                ps.executeUpdate();
-                            }
-                            // Check for next booking on same slot
-                            String nextSql = "SELECT id, entry_time FROM bookings WHERE slot_id = ? AND booking_date = ? AND status = 'confirmed' AND entry_time > ? ORDER BY entry_time ASC LIMIT 1";
-                            try (PreparedStatement psNext = dbConnection.prepareStatement(nextSql)) {
-                                psNext.setString(1, slotId);
-                                psNext.setString(2, today);
-                                psNext.setString(3, exitTime);
-                                try (ResultSet rsNext = psNext.executeQuery()) {
-                                    if (rsNext.next()) {
-                                        String nextEntry = rsNext.getString("entry_time");
-                                        LocalTime nextEntryTime = LocalTime.parse(nextEntry, TIME_FMT);
-                                        LocalDateTime nextEntryDateTime = LocalDateTime.of(now.toLocalDate(), nextEntryTime);
-                                        if (now.isAfter(nextEntryDateTime) || now.equals(nextEntryDateTime)) {
-                                            // Reassign: mark overdue as done
-                                            try (PreparedStatement psDone = dbConnection.prepareStatement("UPDATE bookings SET status = 'done' WHERE id = ?")) {
-                                                psDone.setInt(1, id);
-                                                psDone.executeUpdate();
+                        try {
+                            LocalTime exit = LocalTime.parse(exitTime, TIME_FMT);
+                            LocalDateTime exitDateTime = LocalDateTime.of(now.toLocalDate(), exit);
+                            
+                            if (now.isAfter(exitDateTime)) {
+                                // Update to overdue
+                                try (PreparedStatement ps = dbConnection.prepareStatement("UPDATE bookings SET status = 'overdue' WHERE id = ?")) {
+                                    ps.setInt(1, id);
+                                    ps.executeUpdate();
+                                }
+                                
+                                // Check for next booking on same slot that should have started by now
+                                String nextSql = "SELECT id, mobile, name, entry_time, exit_time FROM bookings " +
+                                                 "WHERE slot_id = ? AND booking_date = ? AND status = 'confirmed' " +
+                                                 "AND id != ? ORDER BY entry_time ASC LIMIT 1";
+                                try (PreparedStatement psNext = dbConnection.prepareStatement(nextSql)) {
+                                    psNext.setString(1, slotId);
+                                    psNext.setString(2, today);
+                                    psNext.setInt(3, id);
+                                    try (ResultSet rsNext = psNext.executeQuery()) {
+                                        if (rsNext.next()) {
+                                            String nextEntry = rsNext.getString("entry_time");
+                                            LocalTime nextEntryTime = LocalTime.parse(nextEntry, TIME_FMT);
+                                            LocalDateTime nextEntryDateTime = LocalDateTime.of(now.toLocalDate(), nextEntryTime);
+                                            
+                                            if (now.isAfter(nextEntryDateTime) || now.equals(nextEntryDateTime)) {
+                                                // CONFLICT: User B's time has arrived but User A is overdue.
+                                                // AUTOMATIC RE-ASSIGNMENT for User B
+                                                int nextId = rsNext.getInt("id");
+                                                String nextExit = rsNext.getString("exit_time");
+                                                String freeSlot = findAnotherFreeSlot(today, nextEntry, nextExit);
+                                                
+                                                if (freeSlot != null) {
+                                                    try (PreparedStatement psReassign = dbConnection.prepareStatement("UPDATE bookings SET slot_id = ? WHERE id = ?")) {
+                                                        psReassign.setString(1, freeSlot);
+                                                        psReassign.setInt(2, nextId);
+                                                        psReassign.executeUpdate();
+                                                    }
+                                                    System.out.println("Auto-reassigned booking " + nextId + " to slot " + freeSlot + " (Original slot " + slotId + " is overdue)");
+                                                }
                                             }
-                                        } else {
-                                            // Status already updated to overdue
                                         }
-                                    } else {
-                                        // No next booking, status already updated to overdue
                                     }
                                 }
                             }
+                        } catch (Exception e) {
+                            // Likely time parse error, skip
                         }
                     }
                 }
@@ -202,6 +222,38 @@ public class ParkSmartApp extends JFrame {
         } catch (SQLException e) {
             e.printStackTrace();
         }
+    }
+
+    private String findAnotherFreeSlot(String date, String entry, String exit) {
+        // Try to find any slot that is NOT booked during this time range
+        for (String slotId : SLOT_IDS) {
+            try {
+                String sql = "SELECT id FROM bookings WHERE slot_id = ? AND booking_date = ? AND status IN ('confirmed', 'overdue') " +
+                             "AND ( (entry_time < ? AND exit_time > ?) OR (entry_time < ? AND exit_time > ?) OR (entry_time >= ? AND exit_time <= ?) )";
+                // This is a simplified check for time overlap in SQL for the demo.
+                // In a production app, we'd use a more robust time comparison.
+                try (PreparedStatement ps = dbConnection.prepareStatement(sql)) {
+                    ps.setString(1, slotId);
+                    ps.setString(2, date);
+                    ps.setString(3, exit);
+                    ps.setString(4, entry);
+                    ps.setString(5, exit);
+                    ps.setString(6, entry);
+                    ps.setString(7, entry);
+                    ps.setString(8, exit);
+                    
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            // No overlap found for this slot
+                            return slotId;
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+        return null;
     }
 
     private void initLoginPanel() {
@@ -701,11 +753,34 @@ public class ParkSmartApp extends JFrame {
         String otp = String.format("%04d", new Random().nextInt(10000));
         otpStore.put(mobile, new OtpEntry(otp, Instant.now().plusSeconds(180)));
 
-        otpStatus.setText("OTP generated for +91-" + mobile); otpStatus.setForeground(FREE_COLOR);
+        if (SmsService.ENABLE_SMS) {
+            otpStatus.setText("Sending OTP to +91-" + mobile + "...");
+            otpStatus.setForeground(new Color(245, 158, 11)); // amber while sending
+        } else {
+            otpStatus.setText("OTP generated for +91-" + mobile);
+            otpStatus.setForeground(FREE_COLOR);
+        }
+        
         loginStatus.setText("Enter OTP and verify"); loginStatus.setForeground(TEXT_COLOR());
 
-        // Show OTP in a styled popup with 60-second countdown
+        // Show OTP in a styled popup (works as fallback if SMS is delayed)
         showOtpPopup(mobile, otp);
+
+        // Send OTP via SMS only if enabled
+        if (SmsService.ENABLE_SMS) {
+            new Thread(() -> {
+                boolean sent = SmsService.sendOtp(mobile, otp);
+                SwingUtilities.invokeLater(() -> {
+                    if (sent) {
+                        otpStatus.setText("✓ OTP sent via SMS to +91-" + mobile);
+                        otpStatus.setForeground(new Color(22, 163, 74)); // green
+                    } else {
+                        otpStatus.setText("⚠ SMS unavailable – use OTP shown in popup");
+                        otpStatus.setForeground(new Color(229, 57, 53)); // red
+                    }
+                });
+            }, "sms-sender").start();
+        }
     }
 
     private void showOtpPopup(String mobile, String otp) {
